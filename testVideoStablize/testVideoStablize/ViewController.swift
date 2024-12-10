@@ -14,8 +14,8 @@ class ViewController: UIViewController {
     private var renderedPlayer: VLCMediaPlayer!
     
     // Define the URLs for the streams
-    private let originalStreamURL = "rtmp://192.168.50.181/live"
-    private let renderedStreamURL = "rtmp://192.168.50.181/live" // Replace with rendered stream URL if different
+    private let originalStreamURL = "rtmp://192.168.1.13/live"
+    private let renderedStreamURL = "rtmp://192.168.1.13/live" // Replace with rendered stream URL if different
     
     // Define the UIViews for the players
     private let originalPlayerView = UIView()

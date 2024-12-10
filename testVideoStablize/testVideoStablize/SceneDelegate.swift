@@ -2,7 +2,7 @@
 //  SceneDelegate.swift
 //  testVideoStablize
 //
-//  Created by Thinh Nguyen on 10/12/24.
+//  Created by Trek2k on 10/12/2024.
 //
 
 import UIKit

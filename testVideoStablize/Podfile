@@ -6,5 +6,5 @@ target 'testVideoStablize' do
   use_frameworks!
 
   # Pods for testVideoStablize
-    pod 'MobileVLCKit', '~>3.3.0'
+  pod 'MobileVLCKit', '~>3.3.0'
 end
