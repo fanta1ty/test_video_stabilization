@@ -7,7 +7,6 @@ target 'testVideoStablize' do
 
   # Pods for testVideoStablize
   pod 'MobileVLCKit', '~>3.3.0'
-  pod 'ACThumbnailGenerator-Swift'
  
 
   post_install do |installer|
