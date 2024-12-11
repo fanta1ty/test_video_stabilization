@@ -21,7 +21,6 @@ class ViewController: UIViewController {
         ])
         
         let streamURL = URL(string: "http://192.168.1.6:81/stream")!
-//        let streamURL = URL(string: "http://192.168.1.6/capture")!
         let mjpegStreamView = MjpegStreamingController(imageView: imageView)
         mjpegStreamView.contentURL = streamURL
         mjpegStreamView.play()
@@ -156,61 +155,6 @@ class MjpegStreamingController: NSObject, URLSessionDataDelegate {
         }
         
         completionHandler(disposition, credential)
-    }
-    
-//    func rotateImageView(byX xAngle: CGFloat, byY yAngle: CGFloat) {
-//            // Convert degrees to radians
-//            let xRotation = xAngle * CGFloat.pi / 180
-//            let yRotation = yAngle * CGFloat.pi / 180
-//
-//            // Create a 3D rotation transform
-//            var transform = CATransform3DIdentity
-//            transform.m34 = -1.0 / 500 // Perspective effect
-//            transform = CATransform3DRotate(transform, xRotation, 1, 0, 0) // Rotate around X-axis
-//            transform = CATransform3DRotate(transform, yRotation, 0, 1, 0) // Rotate around Y-axis
-//
-//            // Apply the transform to the image view
-//            imageView.layer.transform = transform
-//        }
-    
-//    func rotateImageView(imageView: UIImageView, byAngle angle: CGFloat, axisX: CGFloat, axisY: CGFloat, axisZ: CGFloat) {
-//        let radians = angle * CGFloat.pi / 180
-//        var transform = CATransform3DIdentity
-//        transform.m34 = -1.0 / 500 // Perspective effect
-//        transform = CATransform3DRotate(transform, radians, axisX, axisY, axisZ)
-//        imageView.layer.transform = transform
-//    }
-    
-//    func rotateImageOnlyX(imageView: UIImageView, byAngle angle: CGFloat) {
-//        let radians = angle * CGFloat.pi / 180
-//        var transform = CATransform3DIdentity
-//        transform.m34 = -1.0 / 500 // Perspective effect for realistic 3D rotation
-//        transform = CATransform3DRotate(transform, radians, 1, 0, 0) // Rotate around X-axis
-//        imageView.layer.transform = transform
-//    }
-    
-    func rotateImageView(imageView: UIImageView, byAngle angle: CGFloat) {
-        let radians = angle * CGFloat.pi / 180
-        var transform = CATransform3DIdentity
-        transform.m34 = -1.0 / 500 // Perspective effect
-        transform = CATransform3DRotate(transform, radians, 1, 0, 0) // Rotate around X-axis
-        imageView.layer.transform = transform
-    }
-    
-    func rotateImageOnlyY(imageView: UIImageView, byAngle angle: CGFloat) {
-        let radians = angle * CGFloat.pi / 180
-        var transform = CATransform3DIdentity
-        transform.m34 = -1.0 / 500 // Perspective effect for realistic 3D rotation
-        transform = CATransform3DRotate(transform, radians, 0, 1, 0) // Rotate around Y-axis
-        imageView.layer.transform = transform
-    }
-    
-    func rotateImageViewX2D(imageView: UIImageView, byAngle angle: CGFloat) {
-        let radians = angle * CGFloat.pi / 180
-        var transform = CATransform3DIdentity
-        transform.m34 = 0 // Set perspective to 0 for flat 2D effect
-        transform = CATransform3DRotate(transform, radians, 1, 0, 0) // Rotate along X-axis
-        imageView.layer.transform = transform
     }
 }
 
