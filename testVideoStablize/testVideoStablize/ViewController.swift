@@ -1,7 +1,12 @@
 import UIKit
 import AVKit
+import Vision
+import CoreImage
 
 class ViewController: UIViewController {
+//    private let streamURL = URL(string: "http://192.168.1.6:81/stream")!
+    private let streamURL = URL(string: "http://192.168.50.181:8081/mjpeg")!
+    
     var imageView: UIImageView = .init(frame: .zero)
     
     override func viewDidLoad() {
@@ -20,7 +25,6 @@ class ViewController: UIViewController {
             imageView.heightAnchor.constraint(equalTo: imageView.widthAnchor)                          // Square aspect ratio
         ])
         
-        let streamURL = URL(string: "http://192.168.1.6:81/stream")!
         let mjpegStreamView = MjpegStreamingController(imageView: imageView)
         mjpegStreamView.contentURL = streamURL
         mjpegStreamView.play()
@@ -45,6 +49,14 @@ class MjpegStreamingController: NSObject, URLSessionDataDelegate {
     open var didFinishLoading: (()->Void)?
     open var contentURL: URL?
     open var imageView: UIImageView
+    
+    private var previousObservation: VNDetectedObjectObservation?
+    private var previousFrame: CIImage?
+    private let context = CIContext(options: [.useSoftwareRenderer: false]) // Hardware-accelerated
+    private var imageData = Data()
+    
+    private var frameCount = 0
+    private let frameProcessingInterval = 5  // Process every 5th frame
     
     public init(imageView: UIImageView) {
         self.imageView = imageView
@@ -91,44 +103,55 @@ class MjpegStreamingController: NSObject, URLSessionDataDelegate {
     // MARK: - NSURLSessionDataDelegate
     
     open func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        if let imageData = receivedData , imageData.length > 0,
-            let receivedImage = UIImage(data: imageData as Data) {
-            // I'm creating the UIImage before performing didFinishLoading to minimize the interval
-            // between the actions done by didFinishLoading and the appearance of the first image
+        if let imageData = receivedData , imageData.length > 0 {
+            processData(imageData as Data)
+            
             if status == .loading {
                 status = .playing
                 DispatchQueue.main.async { self.didFinishLoading?() }
             }
             
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    self.imageView.image = receivedImage
-                    return
-                }
-                
-                let headers = httpResponse.allHeaderFields
-                
-                guard let rotateXString = headers["rotateX"] as? String,
-                      let rotateX = Double(rotateXString) else {
-                    self.imageView.image = receivedImage
-                    return
-                }
-                
-                print("rotateX: \(rotateXString)")
-                // Convert the angle from degrees to radians if needed
-                let radians = CGFloat(rotateX) * .pi / 180
-                
-                // Rotate and scale the image to fit the imageView bounds
-                if let newImage = receivedImage.rotateAndScaleToFit(by: radians, targetSize: self.imageView.bounds.size) {
-                    self.imageView.image = newImage
-                } else {
-                    self.imageView.image = receivedImage // Fallback
-                }
-            }
-
+            
         }
+        
+//        if let imageData = receivedData , imageData.length > 0,
+//            let receivedImage = UIImage(data: imageData as Data) {
+//            // I'm creating the UIImage before performing didFinishLoading to minimize the interval
+//            // between the actions done by didFinishLoading and the appearance of the first image
+//            if status == .loading {
+//                status = .playing
+//                DispatchQueue.main.async { self.didFinishLoading?() }
+//            }
+            
+//            DispatchQueue.main.async { [weak self] in
+//                guard let self = self else { return }
+//                
+//                guard let httpResponse = response as? HTTPURLResponse else {
+//                    self.imageView.image = receivedImage
+//                    return
+//                }
+//                
+//                let headers = httpResponse.allHeaderFields
+//                
+//                guard let rotateXString = headers["rotateX"] as? String,
+//                      let rotateX = Double(rotateXString) else {
+//                    self.imageView.image = receivedImage
+//                    return
+//                }
+//                
+//                print("rotateX: \(rotateXString)")
+//                // Convert the angle from degrees to radians if needed
+//                let radians = CGFloat(rotateX) * .pi / 180
+//                
+//                // Rotate and scale the image to fit the imageView bounds
+//                if let newImage = receivedImage.rotateAndScaleToFit(by: radians, targetSize: self.imageView.bounds.size) {
+//                    self.imageView.image = newImage
+//                } else {
+//                    self.imageView.image = receivedImage // Fallback
+//                }
+//            }
+
+//        }
         
         receivedData = NSMutableData()
         completionHandler(.allow)
@@ -155,6 +178,68 @@ class MjpegStreamingController: NSObject, URLSessionDataDelegate {
         }
         
         completionHandler(disposition, credential)
+    }
+    
+    private func processData(_ data: Data) {
+        imageData.append(data)
+        
+        while let startRange = imageData.range(of: Data([0xFF, 0xD8, 0xFF])) {
+            if let endRange = imageData.range(of: Data([0xFF, 0xD9]), in: startRange.lowerBound..<imageData.count) {
+                let frameData = self.imageData[startRange.lowerBound..<endRange.upperBound]
+                self.imageData.removeSubrange(0..<endRange.upperBound) // Trim used data
+                
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.processFrame(data: frameData)
+                }
+            } else {
+                break
+            }
+        }
+    }
+    
+    private func processFrame(data: Data) {
+        guard let uiImage = UIImage(data: data), let ciImage = CIImage(image: uiImage) else { return }
+        
+        frameCount += 1
+        if frameCount % frameProcessingInterval == 0 {
+            autoreleasepool {  [weak self] in // Manage memory efficiently
+                guard let self else { return }
+                let downscaledFrame = ciImage.transformed(by: CGAffineTransform(scaleX: 0.5, y: 0.5))
+                if let previousFrame = previousFrame {
+                    alignAndDisplay(newFrame: downscaledFrame, previousFrame: previousFrame)
+                } else {
+                    displayFrame(downscaledFrame)
+                }
+                self.previousFrame = downscaledFrame
+            }
+        }
+    }
+    
+    private func alignAndDisplay(newFrame: CIImage, previousFrame: CIImage) {
+        let request = VNTrackObjectRequest(detectedObjectObservation: VNDetectedObjectObservation(boundingBox: CGRect(x: 0.4, y: 0.4, width: 0.2, height: 0.2)))
+        let handler = VNSequenceRequestHandler()
+        
+        do {
+            try handler.perform([request], on: previousFrame)
+            guard let result = request.results?.first as? VNDetectedObjectObservation else {
+                displayFrame(newFrame)
+                return
+            }
+            
+            let transform = CGAffineTransform(translationX: result.boundingBox.origin.x, y: result.boundingBox.origin.y)
+            let stabilizedImage = newFrame.transformed(by: transform)
+            displayFrame(stabilizedImage)
+        } catch {
+            print("Vision request failed: \(error)")
+            displayFrame(newFrame)
+        }
+    }
+    
+    private func displayFrame(_ frame: CIImage) {
+        if let cgImage = context.createCGImage(frame, from: frame.extent) {
+            imageView.image = UIImage(cgImage: cgImage)
+        }
     }
 }
 
