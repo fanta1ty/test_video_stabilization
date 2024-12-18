@@ -30,6 +30,7 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     private let frameBufferLimit = 3
     private let processingQueue = DispatchQueue(label: "com.mjpegStabilizeStreaming.frames")
     private var isProcessingFrames = false
+    private let semaphore = DispatchSemaphore(value: 1)
 
     public init(imageView: UIImageView) {
         self.imageView = imageView
@@ -90,6 +91,7 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         if let image = UIImage(data: receivedData) {
             processingQueue.async { [weak self] in
                 guard let self = self else { return }
+                self.semaphore.wait()
                 self.frameBuffer.append(image)
 
                 if self.frameBuffer.count >= self.frameBufferLimit {
@@ -101,12 +103,15 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
                         self.frameBuffer.removeAll()
 
                         DispatchQueue.main.async {
-                            self.isProcessingFrames = false
                             stabilizedImages?.forEach { stabilizedImage in
                                 self.imageView.image = stabilizedImage as? UIImage
                             }
+                            self.isProcessingFrames = false
+                            self.semaphore.signal()
                         }
                     }
+                } else {
+                    self.semaphore.signal()
                 }
             }
         }
