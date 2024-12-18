@@ -7,6 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B225D68E2D11D67400E7AF47 /* OpenCVUtils.mm in Sources */ = {isa = PBXBuildFile; fileRef = B225D68D2D11D67400E7AF47 /* OpenCVUtils.mm */; };
+		B225D6912D11DD4D00E7AF47 /* ImageStabilizer.mm in Sources */ = {isa = PBXBuildFile; fileRef = B225D6902D11DD4D00E7AF47 /* ImageStabilizer.mm */; };
+		B225D6942D11E4BE00E7AF47 /* ImageStabilizerWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = B225D6932D11E4BE00E7AF47 /* ImageStabilizerWrapper.mm */; };
+		B225D6972D11E5BE00E7AF47 /* OpenCVWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = B225D6962D11E5BE00E7AF47 /* OpenCVWrapper.mm */; };
+		B225D69A2D11E5C700E7AF47 /* Stabilizer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B225D6982D11E5C700E7AF47 /* Stabilizer.cpp */; };
+		B225D69D2D11E5D000E7AF47 /* FixCvVideoCamera.mm in Sources */ = {isa = PBXBuildFile; fileRef = B225D69C2D11E5D000E7AF47 /* FixCvVideoCamera.mm */; };
+		B2CF1EFD2D12C0FE00D98D25 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B2CF1EFC2D12C0FE00D98D25 /* opencv2.framework */; };
+		B2CF1EFF2D12C14200D98D25 /* MjpegStabilizeStreaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2CF1EFE2D12C13100D98D25 /* MjpegStabilizeStreaming.swift */; };
+		B2FE301A2D12790F00819BBF /* MjpegStreaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2FE30192D12790F00819BBF /* MjpegStreaming.swift */; };
+		B2FE301D2D12793A00819BBF /* UIImage+Ext.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2FE301C2D12793A00819BBF /* UIImage+Ext.swift */; };
 		BEDC140E05176B13F50CC3DB /* Pods_testVideoStablize.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B8345C4F5B88C64E1246BB70 /* Pods_testVideoStablize.framework */; };
 		F14FF0772D07EE0500CC2FE9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F14FF0762D07EE0500CC2FE9 /* AppDelegate.swift */; };
 		F14FF0792D07EE0500CC2FE9 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F14FF0782D07EE0500CC2FE9 /* SceneDelegate.swift */; };
@@ -18,6 +28,23 @@
 
 /* Begin PBXFileReference section */
 		14E6049E54E59CCA4D3CDD72 /* Pods-testVideoStablize.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-testVideoStablize.debug.xcconfig"; path = "Target Support Files/Pods-testVideoStablize/Pods-testVideoStablize.debug.xcconfig"; sourceTree = "<group>"; };
+		B225D6772D118B6300E7AF47 /* testVideoStablize-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "testVideoStablize-Bridging-Header.h"; sourceTree = "<group>"; };
+		B225D68C2D11D67400E7AF47 /* OpenCVUtils.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpenCVUtils.h; sourceTree = "<group>"; };
+		B225D68D2D11D67400E7AF47 /* OpenCVUtils.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OpenCVUtils.mm; sourceTree = "<group>"; };
+		B225D68F2D11DD4D00E7AF47 /* ImageStabilizer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImageStabilizer.h; sourceTree = "<group>"; };
+		B225D6902D11DD4D00E7AF47 /* ImageStabilizer.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ImageStabilizer.mm; sourceTree = "<group>"; };
+		B225D6922D11E4BE00E7AF47 /* ImageStabilizerWrapper.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImageStabilizerWrapper.h; sourceTree = "<group>"; };
+		B225D6932D11E4BE00E7AF47 /* ImageStabilizerWrapper.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ImageStabilizerWrapper.mm; sourceTree = "<group>"; };
+		B225D6952D11E5BE00E7AF47 /* OpenCVWrapper.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpenCVWrapper.h; sourceTree = "<group>"; };
+		B225D6962D11E5BE00E7AF47 /* OpenCVWrapper.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OpenCVWrapper.mm; sourceTree = "<group>"; };
+		B225D6982D11E5C700E7AF47 /* Stabilizer.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Stabilizer.cpp; sourceTree = "<group>"; };
+		B225D6992D11E5C700E7AF47 /* Stabilizer.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Stabilizer.hpp; sourceTree = "<group>"; };
+		B225D69B2D11E5D000E7AF47 /* FixCvVideoCamera.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FixCvVideoCamera.h; sourceTree = "<group>"; };
+		B225D69C2D11E5D000E7AF47 /* FixCvVideoCamera.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FixCvVideoCamera.mm; sourceTree = "<group>"; };
+		B2CF1EFC2D12C0FE00D98D25 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = opencv2.framework; sourceTree = "<group>"; };
+		B2CF1EFE2D12C13100D98D25 /* MjpegStabilizeStreaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MjpegStabilizeStreaming.swift; sourceTree = "<group>"; };
+		B2FE30192D12790F00819BBF /* MjpegStreaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MjpegStreaming.swift; sourceTree = "<group>"; };
+		B2FE301C2D12793A00819BBF /* UIImage+Ext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIImage+Ext.swift"; sourceTree = "<group>"; };
 		B8345C4F5B88C64E1246BB70 /* Pods_testVideoStablize.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_testVideoStablize.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7FF99B363E3F926E6DF4F6A /* Pods-testVideoStablize.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-testVideoStablize.release.xcconfig"; path = "Target Support Files/Pods-testVideoStablize/Pods-testVideoStablize.release.xcconfig"; sourceTree = "<group>"; };
 		F14FF0732D07EE0500CC2FE9 /* testVideoStablize.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = testVideoStablize.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -35,6 +62,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2CF1EFD2D12C0FE00D98D25 /* opencv2.framework in Frameworks */,
 				BEDC140E05176B13F50CC3DB /* Pods_testVideoStablize.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -51,9 +79,29 @@
 			path = Pods;
 			sourceTree = "<group>";
 		};
+		B2FE301E2D127A3600819BBF /* obj-c */ = {
+			isa = PBXGroup;
+			children = (
+				B225D69B2D11E5D000E7AF47 /* FixCvVideoCamera.h */,
+				B225D69C2D11E5D000E7AF47 /* FixCvVideoCamera.mm */,
+				B225D68F2D11DD4D00E7AF47 /* ImageStabilizer.h */,
+				B225D6902D11DD4D00E7AF47 /* ImageStabilizer.mm */,
+				B225D6922D11E4BE00E7AF47 /* ImageStabilizerWrapper.h */,
+				B225D6932D11E4BE00E7AF47 /* ImageStabilizerWrapper.mm */,
+				B225D68C2D11D67400E7AF47 /* OpenCVUtils.h */,
+				B225D68D2D11D67400E7AF47 /* OpenCVUtils.mm */,
+				B225D6952D11E5BE00E7AF47 /* OpenCVWrapper.h */,
+				B225D6962D11E5BE00E7AF47 /* OpenCVWrapper.mm */,
+				B225D6992D11E5C700E7AF47 /* Stabilizer.hpp */,
+				B225D6982D11E5C700E7AF47 /* Stabilizer.cpp */,
+			);
+			path = "obj-c";
+			sourceTree = "<group>";
+		};
 		D1EBC9C8F70E3EFA40F84404 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				B2CF1EFC2D12C0FE00D98D25 /* opencv2.framework */,
 				B8345C4F5B88C64E1246BB70 /* Pods_testVideoStablize.framework */,
 			);
 			name = Frameworks;
@@ -81,12 +129,17 @@
 			isa = PBXGroup;
 			children = (
 				F14FF0762D07EE0500CC2FE9 /* AppDelegate.swift */,
-				F14FF0782D07EE0500CC2FE9 /* SceneDelegate.swift */,
-				F14FF07A2D07EE0500CC2FE9 /* ViewController.swift */,
-				F14FF07C2D07EE0500CC2FE9 /* Main.storyboard */,
 				F14FF07F2D07EE0800CC2FE9 /* Assets.xcassets */,
-				F14FF0812D07EE0800CC2FE9 /* LaunchScreen.storyboard */,
 				F14FF0842D07EE0800CC2FE9 /* Info.plist */,
+				F14FF0812D07EE0800CC2FE9 /* LaunchScreen.storyboard */,
+				F14FF07C2D07EE0500CC2FE9 /* Main.storyboard */,
+				B2CF1EFE2D12C13100D98D25 /* MjpegStabilizeStreaming.swift */,
+				B2FE30192D12790F00819BBF /* MjpegStreaming.swift */,
+				B2FE301E2D127A3600819BBF /* obj-c */,
+				F14FF0782D07EE0500CC2FE9 /* SceneDelegate.swift */,
+				B225D6772D118B6300E7AF47 /* testVideoStablize-Bridging-Header.h */,
+				B2FE301C2D12793A00819BBF /* UIImage+Ext.swift */,
+				F14FF07A2D07EE0500CC2FE9 /* ViewController.swift */,
 			);
 			path = testVideoStablize;
 			sourceTree = "<group>";
@@ -127,6 +180,7 @@
 				TargetAttributes = {
 					F14FF0722D07EE0500CC2FE9 = {
 						CreatedOnToolsVersion = 15.2;
+						LastSwiftMigration = 1620;
 					};
 				};
 			};
@@ -210,9 +264,18 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B225D69A2D11E5C700E7AF47 /* Stabilizer.cpp in Sources */,
+				B225D69D2D11E5D000E7AF47 /* FixCvVideoCamera.mm in Sources */,
+				B225D6942D11E4BE00E7AF47 /* ImageStabilizerWrapper.mm in Sources */,
 				F14FF07B2D07EE0500CC2FE9 /* ViewController.swift in Sources */,
+				B2CF1EFF2D12C14200D98D25 /* MjpegStabilizeStreaming.swift in Sources */,
+				B2FE301A2D12790F00819BBF /* MjpegStreaming.swift in Sources */,
 				F14FF0772D07EE0500CC2FE9 /* AppDelegate.swift in Sources */,
+				B225D68E2D11D67400E7AF47 /* OpenCVUtils.mm in Sources */,
+				B225D6972D11E5BE00E7AF47 /* OpenCVWrapper.mm in Sources */,
 				F14FF0792D07EE0500CC2FE9 /* SceneDelegate.swift in Sources */,
+				B225D6912D11DD4D00E7AF47 /* ImageStabilizer.mm in Sources */,
+				B2FE301D2D12793A00819BBF /* UIImage+Ext.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -363,11 +426,22 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5934F7X3NB;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+				);
+				GCC_PRECOMPILE_PREFIX_HEADER = NO;
+				GCC_PREFIX_HEADER = "";
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					ImageStabilizer.h,
+					OpenCVUtils.h,
+				);
 				INFOPLIST_FILE = testVideoStablize/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -380,9 +454,13 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = thinh.testVideoStablize;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/testVideoStablize/testVideoStablize-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_PRECOMPILE_BRIDGING_HEADER = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -394,11 +472,22 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5934F7X3NB;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+				);
+				GCC_PRECOMPILE_PREFIX_HEADER = NO;
+				GCC_PREFIX_HEADER = "";
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					ImageStabilizer.h,
+					OpenCVUtils.h,
+				);
 				INFOPLIST_FILE = testVideoStablize/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -411,9 +500,12 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = thinh.testVideoStablize;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/testVideoStablize/testVideoStablize-Bridging-Header.h";
+				SWIFT_PRECOMPILE_BRIDGING_HEADER = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
