@@ -5,6 +5,16 @@ import Vision
 import CoreImage
 import opencv2
 
+class MJPEGFrame {
+    var image: UIImage
+    var rotation: Int
+
+    init(image: UIImage, rotation: Int) {
+        self.image = image
+        self.rotation = rotation
+    }
+}
+
 class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     
     fileprivate enum Status {
@@ -14,6 +24,8 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     }
     
     fileprivate var receivedData = Data()
+    private var frames = [MJPEGFrame]()
+    
     fileprivate var dataTask: URLSessionDataTask?
     fileprivate var session: URLSession!
     fileprivate var status: Status = .stopped
@@ -27,10 +39,13 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
 
     private let imageStabilizer = ImageStabilizer()
     private var frameBuffer = [UIImage]() // Collect frames here
-    private let frameBufferLimit = 8
+    private let frameBufferLimit = 3
     private let processingQueue = DispatchQueue(label: "com.mjpegStabilizeStreaming.frames")
     private var isProcessingFrames = false
     private let semaphore = DispatchSemaphore(value: 1)
+    
+    var enableRotation: Bool = true
+    var enableStabilization: Bool = true
 
     public init(imageView: UIImageView) {
         self.imageView = imageView
@@ -77,50 +92,19 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     // MARK: - URLSessionDataDelegate
 
     open func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            onError?(NSError(domain: "Invalid Response", code: -1, userInfo: nil))
-            completionHandler(.cancel)
-            return
-        }
-
+        
         if status == .loading {
             status = .playing
             DispatchQueue.main.async { self.didFinishLoading?() }
         }
         
-        if let image = UIImage(data: receivedData) {
-            processingQueue.async { [weak self] in
-                guard let self = self else { return }
-                self.semaphore.wait()
-                self.frameBuffer.append(image)
-
-                if self.frameBuffer.count >= self.frameBufferLimit {
-                    guard !self.isProcessingFrames else { return }
-                    self.isProcessingFrames = true
-
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        let stabilizedImages = self.imageStabilizer.stabilized(withImageList: self.frameBuffer)
-                        self.frameBuffer.removeAll()
-
-                        DispatchQueue.main.async {
-                            stabilizedImages?.forEach { stabilizedImage in
-                                self.imageView.image = stabilizedImage as? UIImage
-                            }
-                            self.isProcessingFrames = false
-                            self.semaphore.signal()
-                        }
-                    }
-                } else {
-                    self.semaphore.signal()
-                }
-            }
-        }
-        receivedData = Data()
         completionHandler(.allow)
     }
 
     open func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        // print(data.map { String(format: "%02x", $0) }.joined(separator: " "))
         receivedData.append(data)
+        processReceivedData()
     }
 
     open func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -143,5 +127,116 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         DispatchQueue.main.async {
             self.onError?(error)
         }
+    }
+    
+    private func processReceivedData() {
+        var currentIndex = 0
+        
+        while currentIndex < receivedData.count {
+            // A big data contains image + rotation info begins with 0xFF, 0xD8 and ends with 0x22, 0x7D:
+            // image: 0xFF, 0xD8 to 0xFF, 0xD9
+            // rotation: 0x7B, 0x22 to 0x22, 0x7D
+            guard let imgStartRg = receivedData
+                .range(
+                    of: Data([0xFF, 0xD8]),
+                    in: currentIndex..<receivedData.count
+                ) else {
+                break
+            }
+            
+            guard let imgEndRg = receivedData
+                .range(
+                    of: Data([0xFF, 0xD9]),
+                    in: imgStartRg.upperBound..<receivedData.count
+                ) else {
+                break
+            }
+            
+            let imageData  = receivedData.subdata(in: imgStartRg.lowerBound..<imgEndRg.upperBound)
+            
+            guard let rotateStartRg = receivedData
+                .range(
+                    of: Data([0x7B, 0x22]),
+                    in: currentIndex..<receivedData.count
+                ) else {
+                break
+            }
+            
+            guard let rotateEndRg = receivedData
+                .range(
+                    of: Data([0x22, 0x7D]),
+                    in: rotateStartRg.upperBound..<receivedData.count
+                ) else {
+                break
+            }
+            
+            let rotateData  = receivedData.subdata(in: rotateStartRg.lowerBound..<rotateEndRg.upperBound)
+            
+            if let image = UIImage(data: imageData),
+               let rotation = parseRotation(from: rotateData) {
+                let finalImage = enableRotation ? rotateImage(image, by: rotation) : image
+                
+                processingQueue.async { [weak self] in
+                    guard let self else { return }
+                    
+                    self.semaphore.wait()
+                    self.frameBuffer.append(finalImage)
+                    
+                    if self.frameBuffer.count >= self.frameBufferLimit {
+                        guard !self.isProcessingFrames else { return }
+                        self.isProcessingFrames = true
+                        
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            let stabilizedImages = self.enableStabilization ? self.imageStabilizer.stabilized(withImageList: self.frameBuffer) : self.frameBuffer
+                            self.frameBuffer.removeAll()
+                            
+                            DispatchQueue.main.async {
+                                stabilizedImages?.forEach { stabilizedImage in
+                                    self.imageView.image = stabilizedImage as? UIImage
+                                }
+                                self.isProcessingFrames = false
+                                self.semaphore.signal()
+                            }
+                        }
+                    } else {
+                        self.semaphore.signal()
+                    }
+                }
+            }
+            
+            currentIndex = (rotateStartRg.lowerBound..<rotateEndRg.upperBound).upperBound
+        }
+        
+        // Clean up processed data
+        if currentIndex > 0 {
+            receivedData.removeSubrange(0..<currentIndex)
+        }
+    }
+    
+    private func parseRotation(from jsonData: Data) -> Int? {
+        guard let jsonString = String(data: jsonData, encoding: .utf8),
+              let data = jsonString.data(using: .utf8),
+              let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let rotationString = jsonObject["rotate"] as? String,
+              let rotation = Int(rotationString) else {
+            return nil
+        }
+        return rotation
+    }
+    
+    private func rotateImage(_ image: UIImage, by degrees: Int) -> UIImage {
+        let radians = CGFloat(degrees) * .pi / 180
+        let rotatedSize = CGRect(origin: .zero, size: image.size).applying(CGAffineTransform(rotationAngle: radians)).size
+        UIGraphicsBeginImageContext(rotatedSize)
+        let context = UIGraphicsGetCurrentContext()!
+        
+        context.translateBy(x: rotatedSize.width / 2, y: rotatedSize.height / 2)
+        context.rotate(by: radians)
+        image.draw(in: CGRect(x: -image.size.width / 2, y: -image.size.height / 2, width: image.size.width, height: image.size.height))
+        
+        let rotatedImage = UIGraphicsGetImageFromCurrentImageContext()!
+        UIGraphicsEndImageContext()
+        
+        return rotatedImage
     }
 }
