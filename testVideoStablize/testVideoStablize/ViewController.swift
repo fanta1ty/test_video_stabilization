@@ -4,8 +4,8 @@ import Vision
 import CoreImage
 
 class ViewController: UIViewController {
-//    private let streamURL = URL(string: "http://192.168.1.6:81/stream")!
-    private let streamURL = URL(string: "http://192.168.50.181:8081/mjpeg")!
+    private let streamURL = URL(string: "http://192.168.1.50:81/trek_stream")!
+//    private let streamURL = URL(string: "http://192.168.50.181:8081/mjpeg")!
     
     // Define two UIImageViews
     var imageView1: UIImageView = .init(frame: .zero)
@@ -18,11 +18,11 @@ class ViewController: UIViewController {
         
         // Setup first UIImageView
         setupImageView(imageView: imageView1)
-        imageView1.backgroundColor = .lightGray
+//        imageView1.backgroundColor = .lightGray
         
         // Setup second UIImageView
         setupImageView(imageView: imageView2)
-        imageView2.backgroundColor = .darkGray
+//        imageView2.backgroundColor = .darkGray
         
         // Layout the image views
         NSLayoutConstraint.activate([
@@ -44,15 +44,15 @@ class ViewController: UIViewController {
         mjpegStreamView1.contentURL = streamURL
         mjpegStreamView1.play()
         
-        let mjpegStreamView2 = MjpegStabilizeStreaming(imageView: imageView2)
-        mjpegStreamView2.contentURL = streamURL
-        mjpegStreamView2.play()
+//        let mjpegStreamView2 = MjpegStabilizeStreaming(imageView: imageView2)
+//        mjpegStreamView2.contentURL = streamURL
+//        mjpegStreamView2.play()
     }
     
     // Helper function to set up the image views
     private func setupImageView(imageView: UIImageView) {
         view.addSubview(imageView)
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.contentMode = .scaleAspectFit
+        imageView.contentMode = .scaleAspectFill
     }
 }

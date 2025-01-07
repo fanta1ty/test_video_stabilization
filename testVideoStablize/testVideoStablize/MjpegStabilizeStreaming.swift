@@ -27,7 +27,7 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
 
     private let imageStabilizer = ImageStabilizer()
     private var frameBuffer = [UIImage]() // Collect frames here
-    private let frameBufferLimit = 3
+    private let frameBufferLimit = 8
     private let processingQueue = DispatchQueue(label: "com.mjpegStabilizeStreaming.frames")
     private var isProcessingFrames = false
     private let semaphore = DispatchSemaphore(value: 1)
