@@ -28,7 +28,11 @@ class ViewController: UIViewController {
         mjpegStreamView2.play()
         
         let rotationSwitch = UISwitch()
+        rotationSwitch.isOn = true
+        
         let stabilizationSwitch = UISwitch()
+        stabilizationSwitch.isOn = true
+        
         let rotationLabel = UILabel()
         let stabilizationLabel = UILabel()
         
