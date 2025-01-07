@@ -46,6 +46,7 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     
     var enableRotation: Bool = true
     var enableStabilization: Bool = true
+    private var firstRotation: Int? = nil
 
     public init(imageView: UIImageView) {
         self.imageView = imageView
@@ -174,7 +175,12 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
             
             if let image = UIImage(data: imageData),
                let rotation = parseRotation(from: rotateData) {
-                let finalImage = enableRotation ? rotateImage(image, by: rotation) : image
+                let anchorRotation = firstRotation ?? -97
+                let adjustedRotation = (rotation == anchorRotation) ? 0 : (rotation > anchorRotation ? (rotation + anchorRotation) : (rotation + anchorRotation - 360))
+                print("[enableRotation]: \(enableRotation)")
+                print("[enableStabilization]: \(enableStabilization)")
+                
+                let finalImage = enableRotation ? rotateImage(image, by: adjustedRotation) : image
                 
                 processingQueue.async { [weak self] in
                     guard let self else { return }
@@ -216,11 +222,16 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     private func parseRotation(from jsonData: Data) -> Int? {
         guard let jsonString = String(data: jsonData, encoding: .utf8),
               let data = jsonString.data(using: .utf8),
-              let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-              let rotationString = jsonObject["rotate"] as? String,
+              let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
+              let rotationString = (jsonObject as? [String: Any])?["rotate"] as? String,
               let rotation = Int(rotationString) else {
             return nil
         }
+        if firstRotation == nil {
+            firstRotation = rotation
+            print("[First Rotation]: \(String(describing: firstRotation))")
+        }
+        print("[Rotation]: \(rotationString)")
         return rotation
     }
     
