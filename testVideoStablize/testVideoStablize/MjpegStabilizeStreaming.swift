@@ -208,13 +208,13 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
                 // print("[enableStabilization]: \(enableStabilization)")
                 
                 // let finalImage = enableRotation ? rotateImage(image, by: adjustedRotation) : image
-                let pitchRotatedImage = rotateImageByPitch(image: image, pitch: threeDimensionAxes.pitch) // Rotate by  pitch
-                let rollRotatedImage = rotateImageByRoll(image: image, roll: threeDimensionAxes.roll)   // Rotate by  roll
-                let yawRotatedImage = rotateImageByYaw(image: image, yaw: threeDimensionAxes.yaw)     // Rotate by  yaw
+//                let pitchRotatedImage = rotateImageByPitch(image: image, pitch: threeDimensionAxes.pitch) // Rotate by  pitch
+//                let rollRotatedImage = rotateImageByRoll(image: image, roll: threeDimensionAxes.roll)   // Rotate by  roll
+//                let yawRotatedImage = rotateImageByYaw(image: image, yaw: threeDimensionAxes.yaw)     // Rotate by  yaw
                 
-                let stabilizedPitch = pitchFilter.update(measurement: threeDimensionAxes.pitch)
-                let stabilizedRoll = rollFilter.update(measurement: threeDimensionAxes.roll)
-                let stabilizedYaw = yawFilter.update(measurement: threeDimensionAxes.yaw)
+//                let stabilizedPitch = pitchFilter.update(measurement: threeDimensionAxes.pitch)
+//                let stabilizedRoll = rollFilter.update(measurement: threeDimensionAxes.roll)
+//                let stabilizedYaw = yawFilter.update(measurement: threeDimensionAxes.yaw)
                                 
 //                let relativePitch = threeDimensionAxes.pitch - (-48)
 //                let relativeRoll = threeDimensionAxes.roll - (-94)
@@ -223,7 +223,14 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
                 
                 let rotateImage = processImageToLandscape(image, roll: threeDimensionAxes.roll, pitch: threeDimensionAxes.pitch, yaw: threeDimensionAxes.yaw) ?? image
                 
-                let finalImage = enableRotation ? rotateImage : image
+                var finalImage = enableRotation ? rotateImage : image
+                
+                if originImage == nil {
+                    originImage = image
+                    finalImage = image
+                }
+                
+                
                 
                 // neutral position {'r':'-95', 'p':'-48', 'y': '75'}
                 
@@ -476,6 +483,7 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     var neutralRoll: CGFloat?
     var neutralPitch: CGFloat?
     var neutralYaw: CGFloat?
+    var originImage: UIImage?
     
     func processImageToLandscape(_ image: UIImage, roll: CGFloat, pitch: CGFloat, yaw: CGFloat) -> UIImage? {
         guard let neutralRoll = neutralRoll, let neutralPitch = neutralPitch, let neutralYaw = neutralYaw else {
@@ -487,15 +495,20 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         let deltaPitch = pitch - neutralPitch
         let deltaYaw = yaw - neutralYaw
         
+        let deltaLog = "1[delta]" + "r: \(deltaRoll) - p: \(deltaPitch) - y: \(deltaYaw)"
+        print(deltaLog)
+        
+        
         // Use the deltas to calculate the required rotation angle
         // Example: Adjust based on roll and yaw
         let rotationAngle: CGFloat = CGFloat(-deltaRoll * .pi / 180) // Convert roll difference to radians
+        print("1[rotation]: \(rotationAngle)")
         
         // Rotate the image and update the UIImageView
         return rotateImage(image, angle: rotationAngle)
     }
     
-    func rotateImage(_ image: UIImage, angle: CGFloat) -> UIImage? {
+    func  rotateImage(_ image: UIImage, angle: CGFloat) -> UIImage? {
         // Calculate the size of the rotated image
         let rotatedSize = CGRect(origin: .zero, size: image.size)
             .applying(CGAffineTransform(rotationAngle: angle)).integral.size
