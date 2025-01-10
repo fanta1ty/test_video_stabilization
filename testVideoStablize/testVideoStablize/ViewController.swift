@@ -4,14 +4,17 @@ import Vision
 import CoreImage
 
 class ViewController: UIViewController {
-    private let streamURL = URL(string: "http://192.168.1.50:81/trek_stream")!
-//    private let streamURL = URL(string: "http://192.168.50.181:8081/mjpeg")!
+    private let streamURL = URL(string: "http://192.168.1.18:81/trek_stream")!
     
     // Define two UIImageViews
     var imageView1: UIImageView = .init(frame: .zero)
     var imageView2: UIImageView = .init(frame: .zero)
     var mjpegStreamView2: MjpegStabilizeStreaming!
     var mjpegStreamView1: MjpegStreaming!
+    
+    // Labels to display rotation values
+    var firstRotationLabel: UILabel = .init(frame: .zero)
+    var rotationValueLabel: UILabel = .init(frame: .zero)
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -25,13 +28,18 @@ class ViewController: UIViewController {
         
         mjpegStreamView2 = MjpegStabilizeStreaming(imageView: imageView2)
         mjpegStreamView2.contentURL = streamURL
+        mjpegStreamView2.rotationUpdateHandler = { [weak self] firstRotation, currentRotation in
+            DispatchQueue.main.async {
+                self?.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
+            }
+        }
         mjpegStreamView2.play()
         
         let rotationSwitch = UISwitch()
         rotationSwitch.isOn = true
         
         let stabilizationSwitch = UISwitch()
-        stabilizationSwitch.isOn = true
+        stabilizationSwitch.isOn = false
         
         let rotationLabel = UILabel()
         let stabilizationLabel = UILabel()
@@ -54,6 +62,15 @@ class ViewController: UIViewController {
         rotationSwitch.translatesAutoresizingMaskIntoConstraints = false
         stabilizationSwitch.translatesAutoresizingMaskIntoConstraints = false
         
+        // Add rotation value labels
+        firstRotationLabel.text = "First Rotation: N/A"
+        rotationValueLabel.text = "Current Rotation: N/A"
+        view.addSubview(firstRotationLabel)
+        view.addSubview(rotationValueLabel)
+        
+        firstRotationLabel.translatesAutoresizingMaskIntoConstraints = false
+        rotationValueLabel.translatesAutoresizingMaskIntoConstraints = false
+        
         NSLayoutConstraint.activate([
             rotationLabel.topAnchor.constraint(equalTo: imageView2.bottomAnchor, constant: 20),
             rotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
@@ -63,7 +80,13 @@ class ViewController: UIViewController {
             stabilizationLabel.topAnchor.constraint(equalTo: rotationLabel.bottomAnchor, constant: 20),
             stabilizationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             stabilizationSwitch.centerYAnchor.constraint(equalTo: stabilizationLabel.centerYAnchor),
-            stabilizationSwitch.leadingAnchor.constraint(equalTo: stabilizationLabel.trailingAnchor, constant: 10)
+            stabilizationSwitch.leadingAnchor.constraint(equalTo: stabilizationLabel.trailingAnchor, constant: 10),
+            
+            firstRotationLabel.topAnchor.constraint(equalTo: stabilizationLabel.bottomAnchor, constant: 20),
+            firstRotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            
+            rotationValueLabel.topAnchor.constraint(equalTo: firstRotationLabel.bottomAnchor, constant: 10),
+            rotationValueLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20)
         ])
     }
     
@@ -80,5 +103,9 @@ class ViewController: UIViewController {
         view.addSubview(imageView)
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.contentMode = .scaleAspectFill
+    }
+    private func updateRotationLabels(firstRotation: Int?, currentRotation: String?) {
+        firstRotationLabel.text = "First Rotation: \(firstRotation ?? 0)"
+        rotationValueLabel.text = "Current Rotation: \(currentRotation ?? "")"
     }
 }
