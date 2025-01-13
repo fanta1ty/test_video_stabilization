@@ -58,8 +58,8 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     var neutralYaw: CGFloat?
     var originImage: UIImage?
 
-    var rotationUpdateHandler: ((_ firstRotation: Int?, _ currentRotation: String?) -> Void)?
-    private var firstRotation: Int? = nil
+    var rotationUpdateHandler: ((_ firstRotation: String?, _ currentRotation: String?) -> Void)?
+    private var firstRotation: String? = ""
     private var currentRotation: String? = ""
     var affineTransform: ((CGAffineTransform) -> Void)?
     
@@ -240,7 +240,9 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
                         }
                     }
                 } else {
-                    self.imageView.image = finalImage
+                    DispatchQueue.main.async {
+                        self.imageView.image = finalImage
+                    }
                 }
             }
             
@@ -263,11 +265,8 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
             return nil
         }
         if firstRotation == nil {
-            firstRotation = rotation
-            print("[First Rotation]: \(String(describing: firstRotation))")
+            firstRotation = rotationString
         }
-        print("[Rotation]: \(rotationString)")
-        
         return rotation
     }
     
@@ -285,9 +284,6 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         let roll = CGFloat(Double(r) ?? 0)
         let pitch = CGFloat(Double(p) ?? 0)
         let yaw = CGFloat(Double(y) ?? 0)
-        
-        currentRotation = "[3d]: {'r':'\(r)', 'p':'\(p)', 'y': '\(y)'}"
-        rotationUpdateHandler?(firstRotation, currentRotation)
 
         print("[3d]: {'r':'\(r)', 'p':'\(p)', 'y': '\(y)'}")
         return ThreeDimension(pitch: pitch, roll: roll, yaw: yaw)
@@ -355,7 +351,7 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         neutralRoll = roll
         neutralPitch = pitch
         neutralYaw = yaw
-        print("Neutral values set - Roll: \(roll), Pitch: \(pitch), Yaw: \(yaw)")
+        firstRotation = "\n- Roll: \(roll)\n- Pitch: \(pitch)\n- Yaw: \(yaw)"
     }
 
     func processImageToLandscape(_ image: UIImage, roll: CGFloat, pitch: CGFloat, yaw: CGFloat) -> UIImage? {
@@ -368,53 +364,54 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         let deltaPitch = pitch - neutralPitch
         let deltaYaw = yaw - neutralYaw
 
-        let deltaLog = "1[delta]" + "r: \(deltaRoll) - p: \(deltaPitch) - y: \(deltaYaw)"
+        let deltaLog = "Delta rotation: \(deltaYaw)"
         print(deltaLog)
 
-
-        return applyCounterRotation(to: image, deltaRoll: deltaRoll, deltaYaw: deltaYaw, deltaPitch: deltaPitch)
+        currentRotation = "\n- Roll: \(roll)\n- Pitch: \(pitch)\n- Yaw: \(yaw)\n\n\(deltaLog)"
+        rotationUpdateHandler?(firstRotation, currentRotation)
+        
+        return counterRotateImageWithTolerance(to: image, deltaRoll: deltaYaw)
     }
 
-    func applyCounterRotation(
+    func counterRotateImageWithTolerance(
         to image: UIImage,
         deltaRoll: CGFloat,
-        deltaYaw: CGFloat,
-        deltaPitch: CGFloat
+        tolerance: CGFloat = 3.0 // Sensor error margin in degrees
     ) -> UIImage? {
+        // Ignore small changes within the tolerance range
+        if abs(deltaRoll) <= tolerance {
+            return image // Return the original image if within the error margin
+        }
+        
         let imageWidth = image.size.width
         let imageHeight = image.size.height
-        let newSize = CGSize(width: imageWidth, height: imageHeight)
-
-        // Create a graphics context
-        UIGraphicsBeginImageContextWithOptions(newSize, false, image.scale)
+        let originalFrame = CGSize(width: imageWidth, height: imageHeight)
+        
+        // Calculate the diagonal length to ensure the rotated image fits entirely
+        let diagonal = sqrt(imageWidth * imageWidth + imageHeight * imageHeight)
+        let newSize = CGSize(width: diagonal, height: diagonal)
+        
+        // Create a graphics context large enough for the rotated image
+        UIGraphicsBeginImageContextWithOptions(originalFrame, false, image.scale)
         guard let context = UIGraphicsGetCurrentContext() else {
             return nil
         }
-
-        // Move the origin to the center (for rotation)
-        context.translateBy(x: newSize.width / 2, y: newSize.height / 2)
-
-        // Apply counter rotations (convert degrees to radians)
+        
+        // Move the origin to the center of the canvas
+        context.translateBy(x: originalFrame.width / 2, y: originalFrame.height / 2)
+        
+        // Apply the counter-rotation (negative of the roll angle, converted to radians)
         let rollRadians = -deltaRoll * .pi / 180
-        let yawRadians = -deltaYaw * .pi / 180
-        let pitchRadians = -deltaPitch * .pi / 180
-
-        // Combine transformations (3D perspective transformations are limited in CGContext)
         context.rotate(by: rollRadians)
-
-        // For yaw and pitch, we can only approximate with skew transformations in 2D
-        let skewTransform = CGAffineTransform(a: 1, b: tan(pitchRadians), c: tan(yawRadians), d: 1, tx: 0, ty: 0)
-        context.concatenate(skewTransform)
-
-        // Draw the original image onto the transformed context
-        context.translateBy(x: -newSize.width / 2, y: -newSize.height / 2)
-        image.draw(in: CGRect(origin: .zero, size: newSize))
-
-        // Extract the transformed image
-        let transformedImage = UIGraphicsGetImageFromCurrentImageContext()
+        
+        // Move back to the original position to draw the image centered
+        context.translateBy(x: -imageWidth / 2, y: -imageHeight / 2)
+        image.draw(in: CGRect(origin: .zero, size: CGSize(width: imageWidth, height: imageHeight)))
+        
+        // Extract the rotated image
+        let uprightImage = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
-
-        return transformedImage
+        
+        return uprightImage
     }
-
 }
