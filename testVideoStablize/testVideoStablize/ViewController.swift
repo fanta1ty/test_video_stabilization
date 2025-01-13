@@ -82,7 +82,12 @@ class ViewController: UIViewController {
         view.addSubview(startRotateButton)
         
         NSLayoutConstraint.activate([
-            rotationLabel.topAnchor.constraint(equalTo: imageView2.bottomAnchor, constant: 20),
+            imageView2.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
+            imageView2.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
+            imageView2.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30),
+            imageView2.heightAnchor.constraint(equalToConstant: 100),
+            
+            rotationLabel.topAnchor.constraint(equalTo: imageView2.bottomAnchor, constant: 150),
             rotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             rotationSwitch.centerYAnchor.constraint(equalTo: rotationLabel.centerYAnchor),
             rotationSwitch.leadingAnchor.constraint(equalTo: rotationLabel.trailingAnchor, constant: 10),
@@ -100,7 +105,7 @@ class ViewController: UIViewController {
             rotationValueLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             rotationValueLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 20),
             
-            startRotateButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -30), // Use safeAreaLayoutGuide
+            startRotateButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -30),
             startRotateButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             startRotateButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             startRotateButton.heightAnchor.constraint(equalToConstant: 50)
