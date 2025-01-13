@@ -3,7 +3,6 @@ import UIKit
 import AVKit
 import Vision
 import CoreImage
-import opencv2
 
 class MJPEGFrame {
     var image: UIImage
@@ -37,43 +36,37 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     fileprivate var status: Status = .stopped
 
     open var authenticationHandler: ((URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?))?
+    var rotationUpdateHandler: ((_ firstRotation: String?, _ currentRotation: String?) -> Void)?
     open var didStartLoading: (() -> Void)?
     open var didFinishLoading: (() -> Void)?
     open var onError: ((Error?) -> Void)?
     open var contentURL: URL?
     open var imageView: UIImageView
 
-    private let imageStabilizer = ImageStabilizer()
-    private var frameBuffer = [UIImage]() // Collect frames here
+    private var frameBuffer = [UIImage]()
     private let frameBufferLimit = 3
-    private let processingQueue = DispatchQueue(label: "com.mjpegStabilizeStreaming.frames")
+    private let processingQueue = DispatchQueue(label: "com.mjpegStabilizeStreaming.frames", qos: .userInitiated)
     private var isProcessingFrames = false
     private let semaphore = DispatchSemaphore(value: 1)
     
     var enableRotation: Bool = true
     var enableStabilization: Bool = false
+    var startAutoRotation: Bool = false
     
     var neutralRoll: CGFloat?
     var neutralPitch: CGFloat?
     var neutralYaw: CGFloat?
-    var originImage: UIImage?
-
-    var rotationUpdateHandler: ((_ firstRotation: String?, _ currentRotation: String?) -> Void)?
     private var firstRotation: String? = ""
     private var currentRotation: String? = ""
-    var affineTransform: ((CGAffineTransform) -> Void)?
-    
+    private var frameSkipCounter = 0
+    private let frameSkipRate = 2 // Skip every 2nd frame for optimization
+
     public init(imageView: UIImageView) {
         self.imageView = imageView
         super.init()
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
-    }
-
-    public convenience init(imageView: UIImageView, contentURL: URL) {
-        self.init(imageView: imageView)
-        self.contentURL = contentURL
     }
 
     deinit {
@@ -90,10 +83,8 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
 
     open func play() {
         guard let url = contentURL, status == .stopped else { return }
-
         status = .loading
         DispatchQueue.main.async { self.didStartLoading?() }
-
         receivedData = Data()
         let request = URLRequest(url: url)
         dataTask = session.dataTask(with: request)
@@ -105,20 +96,15 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         dataTask?.cancel()
     }
 
-    // MARK: - URLSessionDataDelegate
-
     open func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        
         if status == .loading {
             status = .playing
             DispatchQueue.main.async { self.didFinishLoading?() }
         }
-        
         completionHandler(.allow)
     }
 
     open func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        // print(data.map { String(format: "%02x", $0) }.joined(separator: " "))
         receivedData.append(data)
         processReceivedData()
     }
@@ -126,292 +112,122 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     open func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         var credential: URLCredential?
         var disposition: URLSession.AuthChallengeDisposition = .performDefaultHandling
-
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust {
             credential = URLCredential(trust: trust)
             disposition = .useCredential
-        } else if let onAuthentication = authenticationHandler {
-            (disposition, credential) = onAuthentication(challenge)
         }
-
         completionHandler(disposition, credential)
     }
 
-    // MARK: - Error Handling
-    private func handleError(_ error: Error?) {
-        DispatchQueue.main.async {
-            self.onError?(error)
-        }
-    }
-    
     private func processReceivedData() {
         var currentIndex = 0
-        
         while currentIndex < receivedData.count {
-            // A big data contains image + rotation info begins with 0xFF, 0xD8 and ends with 0x22, 0x7D:
-            // image: 0xFF, 0xD8 to 0xFF, 0xD9
-            // rotation: 0x7B, 0x22 to 0x22, 0x7D by (replaced - not used)
-            // 3d axes: {roll, yaw, pitch}: 0x7B 0x22 to 0x22, 0x7D (with format: {"r":"-64","p":"-26","y":"23"})
+            guard let imgStartRg = receivedData.range(of: Data([0xFF, 0xD8]), in: currentIndex..<receivedData.count),
+                  let imgEndRg = receivedData.range(of: Data([0xFF, 0xD9]), in: imgStartRg.upperBound..<receivedData.count) else { break }
             
-            guard let imgStartRg = receivedData
-                .range(
-                    of: Data([0xFF, 0xD8]),
-                    in: currentIndex..<receivedData.count
-                ) else {
-                break
-            }
+            let imageData = receivedData.subdata(in: imgStartRg.lowerBound..<imgEndRg.upperBound)
             
-            guard let imgEndRg = receivedData
-                .range(
-                    of: Data([0xFF, 0xD9]),
-                    in: imgStartRg.upperBound..<receivedData.count
-                ) else {
-                break
-            }
+            guard let threeDimensionAxesStartRg = receivedData.range(of: Data([0x7B, 0x22]), in: currentIndex..<receivedData.count),
+                  let threeDimensionAxesEndRg = receivedData.range(of: Data([0x22, 0x7D]), in: threeDimensionAxesStartRg.upperBound..<receivedData.count) else { break }
             
-            let imageData  = receivedData.subdata(in: imgStartRg.lowerBound..<imgEndRg.upperBound)
-            
-            guard let threeDimensionAxesStartRg = receivedData
-                .range(
-                    of: Data([0x7B, 0x22]),
-                    in: currentIndex..<receivedData.count
-                ) else {
-                break
-            }
-            
-            guard let threeDimensionAxesEndRg = receivedData
-                .range(
-                    of: Data([0x22, 0x7D]),
-                    in: threeDimensionAxesStartRg.upperBound..<receivedData.count
-                ) else {
-                break
-            }
-            
-            let threeDimensionAxesData  = receivedData.subdata(
-                in: threeDimensionAxesStartRg.lowerBound..<threeDimensionAxesEndRg.upperBound
-            )
+            let threeDimensionAxesData = receivedData.subdata(in: threeDimensionAxesStartRg.lowerBound..<threeDimensionAxesEndRg.upperBound)
             
             if let image = UIImage(data: imageData),
                let threeDimensionAxes = parse3DAxes(from: threeDimensionAxesData) {
-
-                setNeutralValues(
-                    roll: threeDimensionAxes.roll,
-                    pitch: threeDimensionAxes.pitch,
-                    yaw: threeDimensionAxes.yaw
-                )
-
-                let rotateImage = processImageToLandscape(
-                    image,
-                    roll: threeDimensionAxes.roll,
-                    pitch: threeDimensionAxes.pitch,
-                    yaw: threeDimensionAxes.yaw
-                ) ?? image
-
-                let finalImage = enableRotation ? rotateImage : image
-
-                // neutral position {'r':'-95', 'p':'-48', 'y': '75'}
-
-                if enableStabilization {
-                    processingQueue.async { [weak self] in
-                        guard let self else { return }
-
-                        self.semaphore.wait()
-                        self.frameBuffer.append(finalImage)
-
-                        if self.frameBuffer.count >= self.frameBufferLimit {
-                            guard !self.isProcessingFrames else { return }
-                            self.isProcessingFrames = true
-
-                            DispatchQueue.global(qos: .userInitiated).async {
-                                let stabilizedImages = self.imageStabilizer.stabilized(withImageList: self.frameBuffer)
-                                self.frameBuffer.removeAll()
-
-                                DispatchQueue.main.async {
-                                    stabilizedImages?.forEach { stabilizedImage in
-                                        self.imageView.image = stabilizedImage as? UIImage
-                                    }
-                                    self.isProcessingFrames = false
-                                    self.semaphore.signal()
-                                }
-                            }
-                        } else {
-                            self.semaphore.signal()
+                setNeutralValues(roll: threeDimensionAxes.roll, pitch: threeDimensionAxes.pitch, yaw: threeDimensionAxes.yaw)
+                
+                if frameSkipCounter % frameSkipRate == 0 {
+                    processImageToLandscapeAsync(image, roll: threeDimensionAxes.roll, pitch: threeDimensionAxes.pitch, yaw: threeDimensionAxes.yaw) { [weak self] finalImage in
+                        guard let self = self else { return }
+                        DispatchQueue.main.async {
+                            self.imageView.image = finalImage ?? image
                         }
                     }
-                } else {
-                    DispatchQueue.main.async {
-                        self.imageView.image = finalImage
-                    }
                 }
+                frameSkipCounter += 1
             }
-            
-            currentIndex = (threeDimensionAxesStartRg.lowerBound..<threeDimensionAxesEndRg.upperBound)
-                .upperBound
+            currentIndex = threeDimensionAxesEndRg.upperBound
         }
-        
-        // Clean up processed data
         if currentIndex > 0 {
             receivedData.removeSubrange(0..<currentIndex)
         }
     }
-    
-    private func parseRotation(from jsonData: Data) -> Int? {
-        guard let jsonString = String(data: jsonData, encoding: .utf8),
-              let data = jsonString.data(using: .utf8),
-              let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
-              let rotationString = (jsonObject as? [String: Any])?["rotate"] as? String,
-              let rotation = Int(rotationString) else {
-            return nil
-        }
-        if firstRotation == nil {
-            firstRotation = rotationString
-        }
-        return rotation
-    }
-    
+
     private func parse3DAxes(from jsonData: Data) -> ThreeDimension? {
         guard let jsonString = String(data: jsonData, encoding: .utf8),
               let data = jsonString.data(using: .utf8),
               let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
-              let rotationDict = jsonObject as? [String: Any],
-              let r = rotationDict["r"] as? String,
-              let p = rotationDict["p"] as? String,
-              let y = rotationDict["y"] as? String else {
+              let dict = jsonObject as? [String: String] else {
             return nil
         }
         
-        let roll = CGFloat(Double(r) ?? 0)
-        let pitch = CGFloat(Double(p) ?? 0)
-        let yaw = CGFloat(Double(y) ?? 0)
-
-        print("[3d]: {'r':'\(r)', 'p':'\(p)', 'y': '\(y)'}")
+        // Parse roll, pitch, and yaw safely with optional binding
+        guard let rollString = dict["r"], let roll = Double(rollString),
+              let pitchString = dict["p"], let pitch = Double(pitchString),
+              let yawString = dict["y"], let yaw = Double(yawString) else {
+            return nil
+        }
+        
         return ThreeDimension(pitch: pitch, roll: roll, yaw: yaw)
     }
-    
-//    private func rotateImage(_ image: UIImage, by degrees: Int) -> UIImage {
-//        let radians = CGFloat(degrees) * .pi / 180
-//        let rotatedSize = CGRect(origin: .zero, size: image.size).applying(CGAffineTransform(rotationAngle: radians)).size
-//        UIGraphicsBeginImageContext(rotatedSize)
-//        let context = UIGraphicsGetCurrentContext()!
-//        
-//        context.translateBy(x: rotatedSize.width / 2, y: rotatedSize.height / 2)
-//        context.rotate(by: radians)
-//        image.draw(in: CGRect(x: -image.size.width / 2, y: -image.size.height / 2, width: image.size.width, height: image.size.height))
-//        
-//        let rotatedImage = UIGraphicsGetImageFromCurrentImageContext()!
-//        UIGraphicsEndImageContext()
-//        
-//        return rotatedImage
-//    }
 
-    func rotateImageByPitch(image: UIImage, pitch: CGFloat) -> UIImage? {
-        // Convert pitch (in degrees) to radians
-        let radians = pitch * .pi / 180
-        return rotateImage(image: image, byRadians: radians)
-    }
-
-    // Function to rotate an image based on Roll
-    func rotateImageByRoll(image: UIImage, roll: CGFloat) -> UIImage? {
-        // Convert roll (in degrees) to radians
-        let radians = roll * .pi / 180
-        return rotateImage(image: image, byRadians: radians)
-    }
-
-    // Function to rotate an image based on Yaw
-    func rotateImageByYaw(image: UIImage, yaw: CGFloat) -> UIImage? {
-        // Convert yaw (in degrees) to radians
-        let radians = yaw * .pi / 180
-        return rotateImage(image: image, byRadians: radians)
-    }
-
-    // General helper function to rotate an image by radians
-    func rotateImage(image: UIImage, byRadians radians: CGFloat) -> UIImage? {
-        let size = image.size
-        let renderer = UIGraphicsImageRenderer(size: size)
-        
-        let rotatedImage = renderer.image { context in
-            let context = context.cgContext
-            // Move the origin to the center of the image
-            context.translateBy(x: size.width / 2, y: size.height / 2)
-            // Rotate the context
-            context.rotate(by: radians)
-            // Draw the image at the new position
-            image.draw(at: CGPoint(x: -size.width / 2, y: -size.height / 2))
-        }
-        
-        return rotatedImage
-    }
-
-    func setNeutralValues(roll: Double, pitch: Double, yaw: Double) {
-        guard neutralRoll == nil, neutralPitch == nil, neutralYaw == nil else {
-            return // Neutral values already set
-        }
-        
+    private func setNeutralValues(roll: CGFloat, pitch: CGFloat, yaw: CGFloat) {
+        guard startAutoRotation == true, neutralRoll == nil, neutralPitch == nil, neutralYaw == nil else { return }
         neutralRoll = roll
         neutralPitch = pitch
         neutralYaw = yaw
         firstRotation = "\n- Roll: \(roll)\n- Pitch: \(pitch)\n- Yaw: \(yaw)"
     }
 
-    func processImageToLandscape(_ image: UIImage, roll: CGFloat, pitch: CGFloat, yaw: CGFloat) -> UIImage? {
-        guard let neutralRoll = neutralRoll, let neutralPitch = neutralPitch, let neutralYaw = neutralYaw else {
-            return nil // Wait until neutral values are set
+    private func processImageToLandscapeAsync(_ image: UIImage, roll: CGFloat, pitch: CGFloat, yaw: CGFloat, completion: @escaping (UIImage?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            guard self.neutralYaw != nil else { return completion(nil) }
+            
+            var deltaRoll = pitch - self.neutralPitch!
+            
+            let deltaRollLog = "Delta roll: \(roll) - (\(self.neutralRoll ?? 0)) = \(self.neutralRoll!)"
+            let deltaYawLog = "Delta yaw: \(yaw) - (\(self.neutralYaw ?? 0)) = \(yaw - self.neutralYaw!)"
+            let deltaPitchLog = "Delta pitch: \(pitch) - (\(self.neutralPitch ?? 0)) = \(pitch - self.neutralPitch!)"
+            
+            deltaRoll = normalizeAngle(deltaRoll)
+            
+            // Update the current and first rotation
+            currentRotation = "\n- Roll: \(roll)\n- Pitch: \(pitch)\n- Yaw: \(yaw)\n\n\(deltaRollLog)\n\n\(deltaYawLog)\n\n\(deltaPitchLog)"
+            rotationUpdateHandler?(firstRotation, currentRotation)
+            
+            let processedImage = self.applyRotation(image: image, deltaRoll: deltaRoll)
+            completion(processedImage)
         }
-
-        // Calculate the delta (difference) between current and neutral orientation
-        let deltaRoll = roll - neutralRoll
-        let deltaPitch = pitch - neutralPitch
-        let deltaYaw = yaw - neutralYaw
-
-        let deltaLog = "Delta rotation: \(deltaYaw)"
-        print(deltaLog)
-
-        currentRotation = "\n- Roll: \(roll)\n- Pitch: \(pitch)\n- Yaw: \(yaw)\n\n\(deltaLog)"
-        rotationUpdateHandler?(firstRotation, currentRotation)
-        
-        return counterRotateImageWithTolerance(to: image, deltaRoll: deltaYaw)
     }
 
-    func counterRotateImageWithTolerance(
-        to image: UIImage,
-        deltaRoll: CGFloat,
-        tolerance: CGFloat = 3.0 // Sensor error margin in degrees
-    ) -> UIImage? {
-        // Ignore small changes within the tolerance range
-        if abs(deltaRoll) <= tolerance {
-            return image // Return the original image if within the error margin
-        }
-        
-        let imageWidth = image.size.width
-        let imageHeight = image.size.height
-        let originalFrame = CGSize(width: imageWidth, height: imageHeight)
-        
-        // Calculate the diagonal length to ensure the rotated image fits entirely
-        let diagonal = sqrt(imageWidth * imageWidth + imageHeight * imageHeight)
-        let newSize = CGSize(width: diagonal, height: diagonal)
-        
-        // Create a graphics context large enough for the rotated image
-        UIGraphicsBeginImageContextWithOptions(originalFrame, false, image.scale)
-        guard let context = UIGraphicsGetCurrentContext() else {
-            return nil
-        }
-        
-        // Move the origin to the center of the canvas
-        context.translateBy(x: originalFrame.width / 2, y: originalFrame.height / 2)
-        
-        // Apply the counter-rotation (negative of the roll angle, converted to radians)
-        let rollRadians = -deltaRoll * .pi / 180
-        context.rotate(by: rollRadians)
-        
-        // Move back to the original position to draw the image centered
-        context.translateBy(x: -imageWidth / 2, y: -imageHeight / 2)
-        image.draw(in: CGRect(origin: .zero, size: CGSize(width: imageWidth, height: imageHeight)))
-        
-        // Extract the rotated image
-        let uprightImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        
-        return uprightImage
+    private func applyRotation(image: UIImage, deltaRoll: CGFloat) -> UIImage? {
+        let radians = deltaRoll * .pi / 180
+        return rotateImage(image: image, byRadians: radians)
     }
+
+    private func rotateImage(image: UIImage, byRadians radians: CGFloat) -> UIImage? {
+        let renderer = UIGraphicsImageRenderer(size: image.size)
+        return renderer.image { context in
+            let context = context.cgContext
+            context.translateBy(x: image.size.width / 2, y: image.size.height / 2)
+            context.rotate(by: radians)
+            image.draw(at: CGPoint(x: -image.size.width / 2, y: -image.size.height / 2))
+        }
+    }
+    
+    func normalizeAngle(_ angle: CGFloat) -> CGFloat {
+        // Normalize angles for specific cases
+        switch abs(angle) {
+        case 0...10: return 0
+
+        case 90...110: // Close to 90 degrees
+            return 90
+            
+        default:
+            return angle
+        }
+    }
+
 }
