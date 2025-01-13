@@ -41,7 +41,7 @@ class ViewController: UIViewController {
         rotationSwitch.isOn = true
         
         let stabilizationSwitch = UISwitch()
-        stabilizationSwitch.isOn = false
+        stabilizationSwitch.isOn = true
         
         let rotationLabel = UILabel()
         let stabilizationLabel = UILabel()
@@ -129,7 +129,8 @@ class ViewController: UIViewController {
     private func setupImageView(imageView: UIImageView) {
         view.addSubview(imageView)
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.contentMode = .scaleToFill
+        imageView.contentMode = .scaleAspectFill
+        imageView.backgroundColor = .white
     }
     private func updateRotationLabels(firstRotation: String?, currentRotation: String?) {
         firstRotationLabel.text = "First: \(firstRotation ?? "")"
