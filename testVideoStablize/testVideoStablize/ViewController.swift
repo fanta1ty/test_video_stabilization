@@ -16,6 +16,8 @@ class ViewController: UIViewController {
     var firstRotationLabel: UILabel = .init(frame: .zero)
     var rotationValueLabel: UILabel = .init(frame: .zero)
     
+    let startRotateButton: UIButton = .init(frame: .zero)
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .white
@@ -73,6 +75,12 @@ class ViewController: UIViewController {
         firstRotationLabel.translatesAutoresizingMaskIntoConstraints = false
         rotationValueLabel.translatesAutoresizingMaskIntoConstraints = false
         
+        startRotateButton.setTitle("Start Auto Rotation", for: .normal)
+        startRotateButton.setTitleColor(.red, for: .normal)
+        startRotateButton.translatesAutoresizingMaskIntoConstraints = false
+        startRotateButton.addTarget(self, action: #selector(onAutoRotation), for: .touchUpInside)
+        view.addSubview(startRotateButton)
+        
         NSLayoutConstraint.activate([
             rotationLabel.topAnchor.constraint(equalTo: imageView2.bottomAnchor, constant: 20),
             rotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
@@ -91,6 +99,11 @@ class ViewController: UIViewController {
             rotationValueLabel.topAnchor.constraint(equalTo: firstRotationLabel.bottomAnchor, constant: 10),
             rotationValueLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             rotationValueLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 20),
+            
+            startRotateButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -30), // Use safeAreaLayoutGuide
+            startRotateButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            startRotateButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            startRotateButton.heightAnchor.constraint(equalToConstant: 50)
         ])
     }
     
@@ -100,6 +113,16 @@ class ViewController: UIViewController {
     
     @objc func toggleStabilization(_ sender: UISwitch) {
         mjpegStreamView2.enableStabilization = sender.isOn
+    }
+    
+    @objc func onAutoRotation(_ sender: UIButton) {
+        if mjpegStreamView2.startAutoRotation {
+            startRotateButton.setTitle("Start Auto Rotation", for: .normal)
+            mjpegStreamView2.startAutoRotation = false
+        } else {
+            startRotateButton.setTitle("Stop Auto Rotation", for: .normal)
+            mjpegStreamView2.startAutoRotation = true
+        }
     }
     
     // Helper function to set up the image views
