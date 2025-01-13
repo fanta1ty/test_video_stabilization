@@ -63,8 +63,10 @@ class ViewController: UIViewController {
         stabilizationSwitch.translatesAutoresizingMaskIntoConstraints = false
         
         // Add rotation value labels
-        firstRotationLabel.text = "First Rotation: N/A"
-        rotationValueLabel.text = "Current Rotation: N/A"
+        firstRotationLabel.text = "First: N/A"
+        firstRotationLabel.numberOfLines = 0
+        rotationValueLabel.text = "Current: N/A"
+        rotationValueLabel.numberOfLines = 0
         view.addSubview(firstRotationLabel)
         view.addSubview(rotationValueLabel)
         
@@ -84,9 +86,11 @@ class ViewController: UIViewController {
             
             firstRotationLabel.topAnchor.constraint(equalTo: stabilizationLabel.bottomAnchor, constant: 20),
             firstRotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            firstRotationLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 20),
             
             rotationValueLabel.topAnchor.constraint(equalTo: firstRotationLabel.bottomAnchor, constant: 10),
-            rotationValueLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20)
+            rotationValueLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            rotationValueLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 20),
         ])
     }
     
@@ -102,10 +106,10 @@ class ViewController: UIViewController {
     private func setupImageView(imageView: UIImageView) {
         view.addSubview(imageView)
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.contentMode = .scaleAspectFill
+        imageView.contentMode = .scaleToFill
     }
-    private func updateRotationLabels(firstRotation: Int?, currentRotation: String?) {
-        firstRotationLabel.text = "First Rotation: \(firstRotation ?? 0)"
-        rotationValueLabel.text = "Current Rotation: \(currentRotation ?? "")"
+    private func updateRotationLabels(firstRotation: String?, currentRotation: String?) {
+        firstRotationLabel.text = "First: \(firstRotation ?? "")"
+        rotationValueLabel.text = "Current: \(currentRotation ?? "")"
     }
 }
