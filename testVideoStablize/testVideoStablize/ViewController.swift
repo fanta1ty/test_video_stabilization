@@ -105,7 +105,7 @@ class ViewController: UIViewController {
             rotationValueLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             rotationValueLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 20),
             
-            startRotateButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -30),
+            startRotateButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -15),
             startRotateButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             startRotateButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             startRotateButton.heightAnchor.constraint(equalToConstant: 50)
