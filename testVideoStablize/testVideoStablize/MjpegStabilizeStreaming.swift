@@ -204,7 +204,7 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         neutralRoll = roll
         neutralPitch = pitch
         neutralYaw = yaw
-        firstRotation = "\n- Roll: \(roll)°\n- Pitch: \(pitch)°\n- Yaw: \(yaw)°"
+        // firstRotation = "\n- Roll: \(roll)°\n- Pitch: \(pitch)°\n- Yaw: \(yaw)°"
     }
 
     private func applyRotation(image: UIImage, axes: ThreeDimension) -> UIImage? {
@@ -216,8 +216,9 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         let deltaRollLog = "Delta roll: \(axes.roll) - (\(self.neutralRoll ?? 0)) = \(deltaRoll)°"
         let deltaYawLog = "Delta yaw: \(axes.yaw) - (\(self.neutralYaw ?? 0)) = \(deltaYaw) °"
         let deltaPitchLog = "Delta pitch: \(axes.pitch) - (\(self.neutralPitch ?? 0)) = \(deltaPitch)°"
+        let deltaShow = "Rotation: \(deltaPitch)°"
         
-        currentRotation = "\n- Roll: \(axes.roll)°\n- Pitch: \(axes.pitch)°\n- Yaw: \(axes.yaw)°\n\n\(deltaRollLog)\n\n\(deltaYawLog)\n\n\(deltaPitchLog)"
+        currentRotation = "\n- Roll: \(axes.roll)°\n- Pitch: \(axes.pitch)°\n- Yaw: \(axes.yaw)°\n\n\(deltaShow)"
         rotationUpdateHandler?(firstRotation, currentRotation)
         
         let delta = self.normalizeAngle(deltaPitch)
