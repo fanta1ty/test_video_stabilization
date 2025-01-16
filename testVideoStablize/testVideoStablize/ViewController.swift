@@ -38,15 +38,22 @@ class ViewController: UIViewController {
         mjpegStreamView2.play()
         
         let rotationSwitch = UISwitch()
+        rotationSwitch.isHidden = true
         rotationSwitch.isOn = true
         
         let stabilizationSwitch = UISwitch()
+        stabilizationSwitch.isHidden = true
         stabilizationSwitch.isOn = true
         
         let rotationLabel = UILabel()
-        let stabilizationLabel = UILabel()
+        rotationLabel.isHidden = true
+        rotationLabel.textColor = .black
         
-        rotationLabel.text = "Rotation"
+        let stabilizationLabel = UILabel()
+        stabilizationLabel.isHidden = true
+        stabilizationLabel.textColor = .black
+        
+        rotationLabel.text = "Auto Rotation & Auto Stabilization"
         stabilizationLabel.text = "Stabilization"
         view.addSubview(rotationLabel)
         view.addSubview(stabilizationLabel)
@@ -65,17 +72,20 @@ class ViewController: UIViewController {
         stabilizationSwitch.translatesAutoresizingMaskIntoConstraints = false
         
         // Add rotation value labels
-        firstRotationLabel.text = "First: N/A"
+        // firstRotationLabel.text = "First: N/A"
         firstRotationLabel.numberOfLines = 0
-        rotationValueLabel.text = "Current: N/A"
-        rotationValueLabel.numberOfLines = 0
+        firstRotationLabel.textColor = .black
         view.addSubview(firstRotationLabel)
+        
+        rotationValueLabel.text = "Data Received: N/A"
+        rotationValueLabel.numberOfLines = 0
+        rotationValueLabel.textColor = .black
         view.addSubview(rotationValueLabel)
         
         firstRotationLabel.translatesAutoresizingMaskIntoConstraints = false
         rotationValueLabel.translatesAutoresizingMaskIntoConstraints = false
         
-        startRotateButton.setTitle("Start Auto Rotation", for: .normal)
+        startRotateButton.setTitle("Start Auto Rotation & Auto Stabilization", for: .normal)
         startRotateButton.setTitleColor(.red, for: .normal)
         startRotateButton.translatesAutoresizingMaskIntoConstraints = false
         startRotateButton.addTarget(self, action: #selector(onAutoRotation), for: .touchUpInside)
@@ -122,10 +132,10 @@ class ViewController: UIViewController {
     
     @objc func onAutoRotation(_ sender: UIButton) {
         if mjpegStreamView2.startAutoRotation {
-            startRotateButton.setTitle("Start Auto Rotation", for: .normal)
+            startRotateButton.setTitle("Start Auto Rotation & Auto Stabilization", for: .normal)
             mjpegStreamView2.startAutoRotation = false
         } else {
-            startRotateButton.setTitle("Stop Auto Rotation", for: .normal)
+            startRotateButton.setTitle("Stop Auto Rotation & Auto Stabilization", for: .normal)
             mjpegStreamView2.startAutoRotation = true
         }
     }
@@ -138,7 +148,7 @@ class ViewController: UIViewController {
         imageView.backgroundColor = .white
     }
     private func updateRotationLabels(firstRotation: String?, currentRotation: String?) {
-        firstRotationLabel.text = "First: \(firstRotation ?? "")"
-        rotationValueLabel.text = "Current: \(currentRotation ?? "")"
+        // firstRotationLabel.text = "First: \(firstRotation ?? "")"
+        rotationValueLabel.text = "Data Received: \(currentRotation ?? "")"
     }
 }
