@@ -56,7 +56,7 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     open var contentURL: URL?
     open var imageView: UIImageView
     open var enableRotation: Bool = true
-    open var enableStabilization: Bool = true
+    open var enableStabilization: Bool = false
     open var startAutoRotation: Bool = false
 
     // MARK: - Initializer
