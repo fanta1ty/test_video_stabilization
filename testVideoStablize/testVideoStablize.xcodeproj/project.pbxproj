@@ -24,6 +24,7 @@
 		F14FF07E2D07EE0500CC2FE9 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F14FF07C2D07EE0500CC2FE9 /* Main.storyboard */; };
 		F14FF0802D07EE0800CC2FE9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F14FF07F2D07EE0800CC2FE9 /* Assets.xcassets */; };
 		F14FF0832D07EE0800CC2FE9 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F14FF0812D07EE0800CC2FE9 /* LaunchScreen.storyboard */; };
+		F1BD308B2D818D9200524EE3 /* test.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1BD308A2D818D9200524EE3 /* test.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -55,6 +56,7 @@
 		F14FF07F2D07EE0800CC2FE9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F14FF0822D07EE0800CC2FE9 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		F14FF0842D07EE0800CC2FE9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F1BD308A2D818D9200524EE3 /* test.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = test.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -140,6 +142,7 @@
 				B225D6772D118B6300E7AF47 /* testVideoStablize-Bridging-Header.h */,
 				B2FE301C2D12793A00819BBF /* UIImage+Ext.swift */,
 				F14FF07A2D07EE0500CC2FE9 /* ViewController.swift */,
+				F1BD308A2D818D9200524EE3 /* test.swift */,
 			);
 			path = testVideoStablize;
 			sourceTree = "<group>";
@@ -274,6 +277,7 @@
 				B225D68E2D11D67400E7AF47 /* OpenCVUtils.mm in Sources */,
 				B225D6972D11E5BE00E7AF47 /* OpenCVWrapper.mm in Sources */,
 				F14FF0792D07EE0500CC2FE9 /* SceneDelegate.swift in Sources */,
+				F1BD308B2D818D9200524EE3 /* test.swift in Sources */,
 				B225D6912D11DD4D00E7AF47 /* ImageStabilizer.mm in Sources */,
 				B2FE301D2D12793A00819BBF /* UIImage+Ext.swift in Sources */,
 			);
