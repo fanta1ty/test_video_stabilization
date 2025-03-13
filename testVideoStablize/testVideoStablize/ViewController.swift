@@ -6,7 +6,7 @@ import MobileVLCKit
 
 class ViewController: UIViewController {
     private let streamURL = URL(string: "http://192.168.1.18:81/trek_stream")!
-    private let vlcStreamURL = URL(string: "http://192.168.1.18:81/stream")!
+    private let vlcStreamURL = URL(string: "http://192.168.1.18:81/streammm")!
     private let gyroscopeURL = URL(string: "http://192.168.1.18/gyroscope")!
     
     // Define two UIImageViews
@@ -98,7 +98,7 @@ class ViewController: UIViewController {
             imageView2.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30),
             imageView2.heightAnchor.constraint(equalToConstant: 300),
             
-            rotationLabel.topAnchor.constraint(equalTo: imageView2.bottomAnchor, constant: 150),
+            rotationLabel.topAnchor.constraint(equalTo: imageView2.bottomAnchor, constant: 120),
             rotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             rotationSwitch.centerYAnchor.constraint(equalTo: rotationLabel.centerYAnchor),
             rotationSwitch.leadingAnchor.constraint(equalTo: rotationLabel.trailingAnchor, constant: 10),
@@ -124,15 +124,42 @@ class ViewController: UIViewController {
     }
     
     private func setupVLCPlayer() {
-        
-        mediaPlayer.drawable = imageView2
-        mediaPlayer.media = VLCMedia(url: vlcStreamURL)
-        mediaPlayer.media.addOptions([
-            "network-caching": "1000", // Buffering value in ms
-            "live-caching": "1000"     // Live stream buffering
-        ])
-        mediaPlayer.play()
+        validateStreamURL(vlcStreamURL) { [weak self] isValid in
+            guard let self = self else { return }
+            
+            DispatchQueue.main.async {
+                if isValid {
+                    self.mediaPlayer.drawable = self.imageView2
+                    let media = VLCMedia(url: self.vlcStreamURL)
+                    media.addOptions([
+                        "network-caching": "1000",
+                        "live-caching": "1000"
+                    ])
+                    self.mediaPlayer.media = media
+                    self.mediaPlayer.delegate = self
+                    self.mediaPlayer.play()
+                } else {
+                    self.imageView2.image = UIImage(named: "001_Img")
+                }
+            }
+        }
     }
+    
+    // check valid or isValid
+    private func validateStreamURL(_ url: URL, completion: @escaping (Bool) -> Void) {
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        
+        let task = URLSession.shared.dataTask(with: request) { _, response, error in
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                completion(true)
+            } else {
+                completion(false)
+            }
+        }
+        task.resume()
+    }
+
     
     private func setupMjpegStabilizeStreaming() {
         mjpegStreamView2 = MjpegStabilizeStreaming(imageView: imageView2)
@@ -195,5 +222,15 @@ class ViewController: UIViewController {
     private func updateRotationLabels(firstRotation: String?, currentRotation: String?) {
         // firstRotationLabel.text = "First: \(firstRotation ?? "")"
         rotationValueLabel.text = "Data Received: \(currentRotation ?? "")"
+    }
+}
+
+extension ViewController: VLCMediaPlayerDelegate {
+    func mediaPlayerStateChanged(_ aNotification: Notification) {
+        if mediaPlayer.state == .error {
+            DispatchQueue.main.async {
+                self.imageView2.image = UIImage(named: "001_Img")
+            }
+        }
     }
 }
