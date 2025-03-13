@@ -9,12 +9,6 @@ struct MJPEGFrame {
     let rotation: Int
 }
 
-struct ThreeDimension {
-    let pitch: CGFloat
-    let roll: CGFloat
-    let yaw: CGFloat
-}
-
 class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     
     // MARK: - Enums

@@ -9,105 +9,136 @@ class ViewController: UIViewController {
     private let vlcStreamURL = URL(string: "http://192.168.1.18:81/stream")!
     private let gyroscopeURL = URL(string: "http://192.168.1.18/gyroscope")!
     
-    // Define two UIImageViews
-    var imageView1: UIImageView = .init(frame: .zero)
-    var imageView2: UIImageView = .init(frame: .zero)
-    var mjpegStreamView2: MjpegStabilizeStreaming!
-    var mjpegStreamView1: MjpegStreaming!
-    var gyroscopeExtractor: GyroscopeExtractor!
+    // MARK: - UI Components
+    private lazy var imageView: UIImageView = {
+        let view = UIImageView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.contentMode = .scaleAspectFill
+        view.backgroundColor = .white
+        view.clipsToBounds = true
+        return view
+    }()
     
-    // Labels to display rotation values
-    var firstRotationLabel: UILabel = .init(frame: .zero)
-    var rotationValueLabel: UILabel = .init(frame: .zero)
+    private lazy var rotationSwitch: UISwitch = {
+        let toggle = UISwitch()
+        toggle.isOn = true
+        toggle.addTarget(self, action: #selector(toggleRotation(_:)), for: .valueChanged)
+        toggle.translatesAutoresizingMaskIntoConstraints = false
+        return toggle
+    }()
     
-    let startRotateButton: UIButton = .init(frame: .zero)
+    private lazy var stabilizationSwitch: UISwitch = {
+        let toggle = UISwitch()
+        toggle.isOn = true
+        toggle.addTarget(self, action: #selector(toggleStabilization(_:)), for: .valueChanged)
+        toggle.translatesAutoresizingMaskIntoConstraints = false
+        return toggle
+    }()
     
-    // VLC
+    private lazy var rotationLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Auto Rotation & Auto Stabilization"
+        label.textColor = .black
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
+    private lazy var stabilizationLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Stabilization"
+        label.textColor = .black
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
+    private lazy var firstRotationLabel: UILabel = {
+        let label = UILabel()
+        label.numberOfLines = 0
+        label.textColor = .black
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
+    private lazy var rotationValueLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Data Received: N/A"
+        label.numberOfLines = 0
+        label.textColor = .black
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
+    private lazy var startRotateButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("Start Auto Rotation & Auto Stabilization", for: .normal)
+        button.setTitleColor(.red, for: .normal)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(toggleAutoRotation), for: .touchUpInside)
+        return button
+    }()
+    
+    // MARK: - Stream Components
     private let mediaPlayer = VLCMediaPlayer()
+    private var gyroscopeExtractor: GyroscopeExtractor!
+    private var mjpegStreamView: MjpegStabilizeStreaming!
+    
+    private enum StreamMode {
+        case vlc
+        case mjpeg
+    }
+    
+    private let currentStreamMode: StreamMode = .vlc
+    
     
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .white
         // setupImageView(imageView: imageView1)
-        setupImageView(imageView: imageView2)
-        setupVLCPlayer()
-        setupGyroscopeExtractor()
-//        setupMjpegStabilizeStreaming()
+        setupUI()
+        setupStream()
+    }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        cleanupStreams()
+    }
+    
+    private func setupUI() {
+        view.backgroundColor = .white
         
-//        let mjpegStreamView1 = MjpegStreaming(imageView: imageView1)
-//        mjpegStreamView1.contentURL = streamURL
-//        mjpegStreamView1.play()
-        
-        let rotationSwitch = UISwitch()
-        rotationSwitch.isHidden = true
-        rotationSwitch.isOn = true
-        
-        let stabilizationSwitch = UISwitch()
-        stabilizationSwitch.isHidden = true
-        stabilizationSwitch.isOn = true
-        
-        let rotationLabel = UILabel()
-        rotationLabel.isHidden = true
-        rotationLabel.textColor = .black
-        
-        let stabilizationLabel = UILabel()
-        stabilizationLabel.isHidden = true
-        stabilizationLabel.textColor = .black
-        
-        rotationLabel.text = "Auto Rotation & Auto Stabilization"
-        stabilizationLabel.text = "Stabilization"
+        view.addSubview(imageView)
         view.addSubview(rotationLabel)
         view.addSubview(stabilizationLabel)
-        
-        rotationLabel.translatesAutoresizingMaskIntoConstraints = false
-        stabilizationLabel.translatesAutoresizingMaskIntoConstraints = false
-        
-        rotationSwitch.addTarget(self, action: #selector(toggleRotation(_:)), for: .valueChanged)
         view.addSubview(rotationSwitch)
-        
-  
-        stabilizationSwitch.addTarget(self, action: #selector(toggleStabilization(_:)), for: .valueChanged)
         view.addSubview(stabilizationSwitch)
-        
-        rotationSwitch.translatesAutoresizingMaskIntoConstraints = false
-        stabilizationSwitch.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Add rotation value labels
-        // firstRotationLabel.text = "First: N/A"
-        firstRotationLabel.numberOfLines = 0
-        firstRotationLabel.textColor = .black
         view.addSubview(firstRotationLabel)
-        
-        rotationValueLabel.text = "Data Received: N/A"
-        rotationValueLabel.numberOfLines = 0
-        rotationValueLabel.textColor = .black
         view.addSubview(rotationValueLabel)
-        
-        firstRotationLabel.translatesAutoresizingMaskIntoConstraints = false
-        rotationValueLabel.translatesAutoresizingMaskIntoConstraints = false
-        
-        startRotateButton.setTitle("Start Auto Rotation & Auto Stabilization", for: .normal)
-        startRotateButton.setTitleColor(.red, for: .normal)
-        startRotateButton.translatesAutoresizingMaskIntoConstraints = false
-        startRotateButton.addTarget(self, action: #selector(onAutoRotation), for: .touchUpInside)
         view.addSubview(startRotateButton)
         
+        setupConstraints()
+    }
+    
+    private func setupConstraints() {
         NSLayoutConstraint.activate([
-            imageView2.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
-            imageView2.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
-            imageView2.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30),
-            imageView2.heightAnchor.constraint(equalToConstant: 300),
+            // Image view constraints
+            imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
+            imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
+            imageView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30),
+            imageView.heightAnchor.constraint(equalToConstant: 300),
             
-            rotationLabel.topAnchor.constraint(equalTo: imageView2.bottomAnchor, constant: 150),
+            // Rotation label and switch constraints
+            rotationLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 150),
             rotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             rotationSwitch.centerYAnchor.constraint(equalTo: rotationLabel.centerYAnchor),
             rotationSwitch.leadingAnchor.constraint(equalTo: rotationLabel.trailingAnchor, constant: 10),
             
+            // Stabilization label and switch constraints
             stabilizationLabel.topAnchor.constraint(equalTo: rotationLabel.bottomAnchor, constant: 20),
             stabilizationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             stabilizationSwitch.centerYAnchor.constraint(equalTo: stabilizationLabel.centerYAnchor),
             stabilizationSwitch.leadingAnchor.constraint(equalTo: stabilizationLabel.trailingAnchor, constant: 10),
             
+            // Information label constraints
             firstRotationLabel.topAnchor.constraint(equalTo: stabilizationLabel.bottomAnchor, constant: 20),
             firstRotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             firstRotationLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 20),
@@ -116,6 +147,7 @@ class ViewController: UIViewController {
             rotationValueLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             rotationValueLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 20),
             
+            // Button constraints
             startRotateButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -15),
             startRotateButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             startRotateButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
@@ -123,32 +155,60 @@ class ViewController: UIViewController {
         ])
     }
     
-    private func setupVLCPlayer() {
+    private func setupStream() {
+        setupGyroscopeExtractor()
         
-        mediaPlayer.drawable = imageView2
-        mediaPlayer.media = VLCMedia(url: vlcStreamURL)
-        mediaPlayer.media.addOptions([
+        switch currentStreamMode {
+        case .vlc:
+            setupVLCStream()
+            // Hide stabilization controls as they may not be applicable with VLC
+            stabilizationSwitch.isHidden = true
+            stabilizationLabel.isHidden = true
+        case .mjpeg:
+            setupMJPEGStream()
+        }
+    }
+    
+    private func setupVLCStream() {
+        mediaPlayer.drawable = imageView
+        let media = VLCMedia(url: StreamConfig.vlcStreamURL)
+        mediaPlayer.media = media
+        
+        // Configure VLC media options
+        media.addOptions([
             "network-caching": "1000", // Buffering value in ms
-            "live-caching": "1000"     // Live stream buffering
+            "live-caching": "1000",    // Live stream buffering
+            "clock-jitter": "0",       // Minimize delay
+            "clock-synchro": "0"       // Minimize synchronization
         ])
+        
+        // Add error handling
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(mediaPlayerStateChanged),
+            name: NSNotification.Name(rawValue: "VLCMediaPlayerStateChanged"),
+            object: mediaPlayer
+        )
+        
         mediaPlayer.play()
     }
     
-    private func setupMjpegStabilizeStreaming() {
-        mjpegStreamView2 = MjpegStabilizeStreaming(imageView: imageView2)
-        mjpegStreamView2.contentURL = streamURL
-        mjpegStreamView2.rotationUpdateHandler = { [weak self] firstRotation, currentRotation in
+    
+    
+    private func setupMJPEGStream() {
+        mjpegStreamView = MjpegStabilizeStreaming(imageView: imageView)
+        mjpegStreamView.contentURL = StreamConfig.streamURL
+        mjpegStreamView.rotationUpdateHandler = { [weak self] firstRotation, currentRotation in
             DispatchQueue.main.async {
                 self?.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
             }
         }
-        mjpegStreamView2.play()
-
+        mjpegStreamView.play()
     }
     
     private func setupGyroscopeExtractor() {
-        gyroscopeExtractor = GyroscopeExtractor(imageView: imageView2, containerView: view)
-        gyroscopeExtractor.contentURL = gyroscopeURL
+        gyroscopeExtractor = GyroscopeExtractor(imageView: imageView, containerView: view)
+        gyroscopeExtractor.contentURL = StreamConfig.gyroscopeURL
         gyroscopeExtractor.rotationUpdateHandler = { [weak self] firstRotation, currentRotation in
             DispatchQueue.main.async {
                 self?.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
@@ -158,42 +218,74 @@ class ViewController: UIViewController {
         gyroscopeExtractor.startGyroscopeUpdates()
     }
     
-    @objc func toggleRotation(_ sender: UISwitch) {
-        // mjpegStreamView2.enableRotation = sender.isOn
+    private func cleanupStreams() {
+        // Stop VLC player
+        mediaPlayer.stop()
+        
+        // Stop MJPEG stream if active
+        mjpegStreamView?.stop()
+        
+        // Stop gyroscope updates
+        gyroscopeExtractor.stopGyroscopeUpdates()
+    }
+    
+    @objc private func toggleRotation(_ sender: UISwitch) {
         gyroscopeExtractor.enableRotation = sender.isOn
     }
     
-    @objc func toggleStabilization(_ sender: UISwitch) {
-        mjpegStreamView2.enableStabilization = sender.isOn
+    @objc private func toggleStabilization(_ sender: UISwitch) {
+        mjpegStreamView?.enableStabilization = sender.isOn
     }
     
-    @objc func onAutoRotation(_ sender: UIButton) {
-//        if mjpegStreamView2.startAutoRotation {
-//            startRotateButton.setTitle("Start Auto Rotation & Auto Stabilization", for: .normal)
-//            mjpegStreamView2.startAutoRotation = false
-//        } else {
-//            startRotateButton.setTitle("Stop Auto Rotation & Auto Stabilization", for: .normal)
-//            mjpegStreamView2.startAutoRotation = true
-//        }
-        if gyroscopeExtractor.startAutoRotation {
-            startRotateButton.setTitle("Start Auto Rotation & Auto Stabilization", for: .normal)
-            gyroscopeExtractor.startAutoRotation = false
-        } else {
-            startRotateButton.setTitle("Stop Auto Rotation & Auto Stabilization", for: .normal)
-            gyroscopeExtractor.startAutoRotation = true
+    @objc private func toggleAutoRotation() {
+        let isActive = gyroscopeExtractor.startAutoRotation
+        gyroscopeExtractor.startAutoRotation = !isActive
+        
+        let buttonTitle = isActive
+        ? "Start Auto Rotation & Auto Stabilization"
+        : "Stop Auto Rotation & Auto Stabilization"
+        startRotateButton.setTitle(buttonTitle, for: .normal)
+    }
+    
+    @objc private func mediaPlayerStateChanged() {
+        switch mediaPlayer.state {
+        case .error:
+            handleStreamError()
+        case .ended:
+            attemptStreamReconnection()
+        default:
+            break
         }
     }
     
-    // Helper function to set up the image views
-    private func setupImageView(imageView: UIImageView) {
-        view.addSubview(imageView)
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.contentMode = .scaleAspectFill
-        imageView.backgroundColor = .white
-        imageView.clipsToBounds = true
+    private func handleStreamError() {
+        // Show error alert
+        let alert = UIAlertController(
+            title: "Stream Error",
+            message: "There was an error with the video stream. Would you like to try reconnecting?",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Reconnect", style: .default) { [weak self] _ in
+            self?.attemptStreamReconnection()
+        })
+        
+        present(alert, animated: true)
     }
+    
+    private func attemptStreamReconnection() {
+        // Stop current stream
+        mediaPlayer.stop()
+        
+        // Try to reconnect after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.setupStream()
+        }
+    }
+    
+    // MARK: - UI Updates
     private func updateRotationLabels(firstRotation: String?, currentRotation: String?) {
-        // firstRotationLabel.text = "First: \(firstRotation ?? "")"
-        rotationValueLabel.text = "Data Received: \(currentRotation ?? "")"
+        rotationValueLabel.text = "Data Received: \(currentRotation ?? "N/A")"
     }
 }
