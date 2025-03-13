@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		751CCA8F2D82816600025A98 /* GyroscopeExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751CCA8E2D82815A00025A98 /* GyroscopeExtractor.swift */; };
 		7529456C2D12CDAD003436C6 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7529456B2D12CDAD003436C6 /* opencv2.framework */; };
 		B225D68E2D11D67400E7AF47 /* OpenCVUtils.mm in Sources */ = {isa = PBXBuildFile; fileRef = B225D68D2D11D67400E7AF47 /* OpenCVUtils.mm */; };
 		B225D6912D11DD4D00E7AF47 /* ImageStabilizer.mm in Sources */ = {isa = PBXBuildFile; fileRef = B225D6902D11DD4D00E7AF47 /* ImageStabilizer.mm */; };
@@ -28,6 +29,7 @@
 
 /* Begin PBXFileReference section */
 		14E6049E54E59CCA4D3CDD72 /* Pods-testVideoStablize.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-testVideoStablize.debug.xcconfig"; path = "Target Support Files/Pods-testVideoStablize/Pods-testVideoStablize.debug.xcconfig"; sourceTree = "<group>"; };
+		751CCA8E2D82815A00025A98 /* GyroscopeExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroscopeExtractor.swift; sourceTree = "<group>"; };
 		7529456B2D12CDAD003436C6 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = opencv2.framework; sourceTree = "<group>"; };
 		B225D6772D118B6300E7AF47 /* testVideoStablize-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "testVideoStablize-Bridging-Header.h"; sourceTree = "<group>"; };
 		B225D68C2D11D67400E7AF47 /* OpenCVUtils.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpenCVUtils.h; sourceTree = "<group>"; };
@@ -128,6 +130,7 @@
 		F14FF0752D07EE0500CC2FE9 /* testVideoStablize */ = {
 			isa = PBXGroup;
 			children = (
+				751CCA8E2D82815A00025A98 /* GyroscopeExtractor.swift */,
 				F14FF0762D07EE0500CC2FE9 /* AppDelegate.swift */,
 				F14FF07F2D07EE0800CC2FE9 /* Assets.xcassets */,
 				F14FF0842D07EE0800CC2FE9 /* Info.plist */,
@@ -269,6 +272,7 @@
 				B225D6942D11E4BE00E7AF47 /* ImageStabilizerWrapper.mm in Sources */,
 				F14FF07B2D07EE0500CC2FE9 /* ViewController.swift in Sources */,
 				B2CF1EFF2D12C14200D98D25 /* MjpegStabilizeStreaming.swift in Sources */,
+				751CCA8F2D82816600025A98 /* GyroscopeExtractor.swift in Sources */,
 				B2FE301A2D12790F00819BBF /* MjpegStreaming.swift in Sources */,
 				F14FF0772D07EE0500CC2FE9 /* AppDelegate.swift in Sources */,
 				B225D68E2D11D67400E7AF47 /* OpenCVUtils.mm in Sources */,
