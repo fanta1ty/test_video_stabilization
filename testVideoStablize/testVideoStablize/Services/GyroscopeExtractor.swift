@@ -44,6 +44,9 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     private var _firstRotation: String?
     private var _currentRotation: String?
     
+    // Image Storage
+    private var originalImage: UIImage?
+    
     // Timer
     private var gyroTimer: Timer?
     
@@ -70,7 +73,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     /// URL for gyroscope data
     open var contentURL: URL?
     
-    /// ImageView that will be rotated based on gyroscope data
+    /// ImageView that will display the rotated images
     open var imageView: UIImageView
     
     /// Container view that holds the image view
@@ -148,7 +151,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     
     /// Initialize with the image view that will display rotated content and its container
     /// - Parameters:
-    ///   - imageView: The UIImageView to be rotated
+    ///   - imageView: The UIImageView to display rotated images
     ///   - containerView: The container view that holds the image view
     public init(imageView: UIImageView, containerView: UIView) {
         self.imageView = imageView
@@ -214,7 +217,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         gyroTimer = nil
     }
     
-    /// Reset calibration values
+    /// Reset calibration values and restore original image
     open func resetCalibration() {
         syncQueue.sync {
             _neutralRoll = nil
@@ -222,10 +225,10 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
             _neutralYaw = nil
             _firstRotation = nil
             
-            // Reset the image view rotation
-            DispatchQueue.main.async { [weak self] in
-                UIView.animate(withDuration: 0.3) {
-                    self?.imageView.transform = .identity
+            // Reset by restoring the original image
+            if let originalImage = self.originalImage {
+                DispatchQueue.main.async { [weak self] in
+                    self?.imageView.image = originalImage
                 }
             }
         }
@@ -256,9 +259,9 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         processingQueue.async { [weak self] in
             guard let self = self else { return }
             
-            // Process the gyroscope data and apply rotation
+            // Process the gyroscope data and apply rotation to image
             DispatchQueue.main.async {
-                self.applyRotationToImageView(self.imageView, axes: threeDimensionAxes)
+                self.applyRotationToImage(self.imageView, axes: threeDimensionAxes)
             }
         }
         
@@ -358,7 +361,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
                 // Apply rotation
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
-                    self.applyRotationToImageView(self.imageView, axes: threeDimensionAxes)
+                    self.applyRotationToImage(self.imageView, axes: threeDimensionAxes)
                 }
             }
             
@@ -431,12 +434,22 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         }
     }
     
-    /// Apply rotation to an image view based on gyroscope data
-    private func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
+    /// Apply rotation to the image content rather than the view
+    private func applyRotationToImage(_ imageView: UIImageView, axes: ThreeDimension) {
         guard let neutralRoll = self.neutralRoll,
               let neutralPitch = self.neutralPitch,
               let neutralYaw = self.neutralYaw else {
             return
+        }
+        
+        // Get the current image (use original if available)
+        guard let sourceImage = originalImage ?? imageView.image else {
+            return
+        }
+        
+        // Store original image if not already stored
+        if originalImage == nil {
+            originalImage = sourceImage
         }
         
         // Calculate delta rotations
@@ -461,13 +474,64 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         if enableRotation && startAutoRotation {
             // Use deltaYaw for horizontal rotation (adjust as needed for your application)
             let normalizedDelta = normalizeAngle(deltaYaw)
-            let radians = normalizedDelta * .pi / 180
             
-            // Apply smooth rotation with animation
-            UIView.animate(withDuration: 0.1, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
-                imageView.transform = CGAffineTransform(rotationAngle: radians)
+            // Skip rotation if the angle is very small (optimization)
+            if abs(normalizedDelta) < 0.1 {
+                return
+            }
+            
+            // For better performance, we'll use a cached rotation approach
+            let rotatedImage = rotateImageEfficiently(sourceImage, byDegrees: normalizedDelta)
+            
+            // Update image view with the rotated image
+            DispatchQueue.main.async { [weak self] in
+                guard self != nil else { return }
+                imageView.image = rotatedImage
             }
         }
+    }
+    
+    /// More efficient image rotation using Core Graphics
+    private func rotateImageEfficiently(_ image: UIImage, byDegrees degrees: CGFloat) -> UIImage {
+        // Convert degrees to radians
+        let radians = degrees * .pi / 180.0
+        
+        // Calculate new size
+        let originalSize = image.size
+        let rotatedViewBox = CGRect(origin: .zero, size: originalSize)
+            .applying(CGAffineTransform(rotationAngle: radians))
+        let rotatedSize = rotatedViewBox.size
+        
+        // Create the bitmap context - optimize for performance
+        UIGraphicsBeginImageContextWithOptions(rotatedSize, false, 1.0)
+        defer { UIGraphicsEndImageContext() }
+        
+        guard let context = UIGraphicsGetCurrentContext(),
+              let cgImage = image.cgImage else {
+            return image
+        }
+        
+        // Move to center and rotate
+        context.translateBy(x: rotatedSize.width / 2, y: rotatedSize.height / 2)
+        context.rotate(by: radians)
+        
+        // Draw the image
+        context.scaleBy(x: 1.0, y: -1.0)
+        let drawRect = CGRect(
+            x: -originalSize.width / 2,
+            y: -originalSize.height / 2,
+            width: originalSize.width,
+            height: originalSize.height
+        )
+        
+        context.draw(cgImage, in: drawRect)
+        
+        // Get the rotated image
+        guard let rotatedImage = UIGraphicsGetImageFromCurrentImageContext() else {
+            return image
+        }
+        
+        return rotatedImage
     }
     
     /// Normalize angle for smoother rotation
@@ -496,16 +560,10 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         return normalized
     }
     
-    /// Adjust image view size after rotation to maintain proper display
-    private func adjustImageViewSizeAfterRotation(_ imageView: UIImageView, in containerView: UIView, angle: CGFloat) {
-        // For more advanced cases, you might need to adjust the content mode dynamically
-        if abs(angle).truncatingRemainder(dividingBy: .pi / 2) < 0.1 {
-            // Near 90/270 degrees - might need different aspect handling
-            imageView.contentMode = .scaleAspectFill
-        } else {
-            // Other angles
-            imageView.contentMode = .scaleAspectFill
-        }
+    /// Update the original image when stream provides a new frame
+    func streamDidUpdateImage(_ newImage: UIImage) {
+        // When getting a new frame from the stream, update the original reference
+        originalImage = newImage
     }
 }
 
@@ -547,11 +605,10 @@ private struct CircularImageBuffer {
     }
 }
 
-/// Placeholder class for image stabilization (implement according to your needs)
 private class ImageStabilizer {
     func stabilized(withImageList images: [UIImage]) -> [Any]? {
         // Implementation for image stabilization
-        // This would contain your stabilization algorithm
+        // This is a placeholder - you would implement your stabilization algorithm here
         return images
     }
 }
