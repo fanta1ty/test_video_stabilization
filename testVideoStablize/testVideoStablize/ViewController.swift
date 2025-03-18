@@ -9,12 +9,12 @@ class ViewController: UIViewController {
     
     // MARK: - Stream Mode Enum
     private enum StreamMode {
-        case avPlayer
+        case vlcPlayer
         case mjpeg
     }
     
     // Current streaming mode
-    private let currentStreamMode: StreamMode = .avPlayer
+    private let currentStreamMode: StreamMode = .vlcPlayer
     
     // MARK: - UI Components
     private lazy var imageView: UIImageView = {
@@ -85,12 +85,12 @@ class ViewController: UIViewController {
     }()
     
     // MARK: - Stream Components
-    private var avPlayer: AVPlayer?
-    private var playerLayer: AVPlayerLayer?
-    private var playerItemContext = 0
-    
+    private var mediaPlayer: VLCMediaPlayer?
     private var gyroscopeExtractor: GyroscopeExtractor!
     private var mjpegStreamView: MjpegStabilizeStreaming?
+    
+    // VLC delegate handling
+    private let vlcEventManager = VLCEventsHandler()
     
     // MARK: - Lifecycle Methods
     override func viewDidLoad() {
@@ -99,24 +99,14 @@ class ViewController: UIViewController {
         setupStream()
     }
     
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        // Update player layer frame when view layout changes
-        playerLayer?.frame = imageView.bounds
-    }
-    
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         cleanupStreams()
     }
     
     deinit {
-        // Clean up KVO observers
-        if let player = avPlayer {
-            removePlayerObservers(player)
-        }
-        
         NotificationCenter.default.removeObserver(self)
+        cleanupStreams()
     }
     
     // MARK: - UI Setup
@@ -177,56 +167,73 @@ class ViewController: UIViewController {
         setupGyroscopeExtractor()
         
         switch currentStreamMode {
-        case .avPlayer:
-            setupAVPlayerStream()
-            // Hide stabilization controls as they may not be applicable with AVPlayer
-            stabilizationSwitch.isHidden = true
-            stabilizationLabel.isHidden = true
+        case .vlcPlayer:
+            setupVLCPlayerStream()
+            // Show stabilization controls
+            stabilizationSwitch.isHidden = false
+            stabilizationLabel.isHidden = false
         case .mjpeg:
             setupMJPEGStream()
         }
     }
     
-    private func setupAVPlayerStream() {
-        // Remove any existing player layer
-        if let existingPlayerLayer = playerLayer {
-            existingPlayerLayer.removeFromSuperlayer()
-        }
+    private func setupVLCPlayerStream() {
+        // Initialize VLC media player
+        let player = VLCMediaPlayer()
+        self.mediaPlayer = player
         
-        // Set up asset
-        let asset = AVAsset(url: StreamConfig.streamURL)
-        let playerItem = AVPlayerItem(asset: asset)
+        // Set up image container as drawable
+        // Note: VLC will render directly to this view
+        player.drawable = imageView
         
-        // Configure for low latency
-        playerItem.preferredForwardBufferDuration = 1.0
+        // Configure media
+        let media = VLCMedia(url: StreamConfig.vlcStreamURL)
         
-        // Create player
-        let player = AVPlayer(playerItem: playerItem)
-        avPlayer = player
+        // Configure media options for low latency
+        media.addOption(":network-caching=300")
+        media.addOption(":clock-jitter=0")
+        media.addOption(":clock-synchro=0")
         
-        // Create player layer
-        let layer = AVPlayerLayer(player: player)
-        layer.frame = imageView.bounds
-        layer.videoGravity = .resizeAspectFill
-        imageView.layer.addSublayer(layer)
-        playerLayer = layer
+        player.media = media
         
-        // Configure for minimum latency
-        player.automaticallyWaitsToMinimizeStalling = false
-        
-        // Add observers for player status
-        addPlayerObservers(player)
-        
-        // Add notification for when playback ends
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(playerItemDidReachEnd),
-            name: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem
-        )
+        // Set up event handling
+        setupVLCEvents(for: player)
         
         // Start playback
         player.play()
+    }
+    
+    private func setupVLCEvents(for player: VLCMediaPlayer) {
+        // Set up event manager for VLC player
+        vlcEventManager.mediaPlayer = player
+        
+        // Set error handler
+        vlcEventManager.onError = { [weak self] error in
+            DispatchQueue.main.async {
+                self?.handleVLCError(error)
+            }
+        }
+        
+        // Handle media state changes
+        vlcEventManager.onStateChange = { [weak self] state in
+            DispatchQueue.main.async {
+                switch state {
+                case .error:
+                    self?.handleVLCError(nil)
+                case .ended:
+                    self?.attemptStreamReconnection()
+                default:
+                    break
+                }
+            }
+        }
+        
+        // Capture frames from VLC for custom processing if needed
+        vlcEventManager.onSnapshotTaken = { [weak self] image in
+            guard let self = self, let capturedImage = image else { return }
+            // Update gyroscope extractor with the new frame
+            self.gyroscopeExtractor.streamDidUpdateImage(capturedImage)
+        }
     }
     
     private func setupMJPEGStream() {
@@ -253,8 +260,8 @@ class ViewController: UIViewController {
     }
     
     private func cleanupStreams() {
-        // Clean up AVPlayer
-        cleanupAVPlayer()
+        // Clean up VLC player
+        cleanupVLCPlayer()
         
         // Stop MJPEG stream if active
         mjpegStreamView?.stop()
@@ -263,108 +270,13 @@ class ViewController: UIViewController {
         gyroscopeExtractor.stopGyroscopeUpdates()
     }
     
-    private func cleanupAVPlayer() {
-        if let player = avPlayer {
-            player.pause()
-            removePlayerObservers(player)
-        }
+    private func cleanupVLCPlayer() {
+        // Stop VLC playback
+        mediaPlayer?.stop()
+        mediaPlayer = nil
         
-        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: avPlayer?.currentItem)
-        
-        if let layer = playerLayer {
-            layer.removeFromSuperlayer()
-            playerLayer = nil
-        }
-        
-        avPlayer = nil
-    }
-    
-    // MARK: - Player Observers
-    private func addPlayerObservers(_ player: AVPlayer) {
-        // Observe player status
-        player.addObserver(
-            self,
-            forKeyPath: #keyPath(AVPlayer.status),
-            options: [.new, .initial],
-            context: &playerItemContext
-        )
-        
-        // Observe playback status for buffering
-        player.addObserver(
-            self,
-            forKeyPath: #keyPath(AVPlayer.timeControlStatus),
-            options: [.new],
-            context: &playerItemContext
-        )
-        
-        // Observe current item for errors
-        player.addObserver(
-            self,
-            forKeyPath: #keyPath(AVPlayer.currentItem.status),
-            options: [.new, .initial],
-            context: &playerItemContext
-        )
-    }
-    
-    private func removePlayerObservers(_ player: AVPlayer) {
-        player.removeObserver(self, forKeyPath: #keyPath(AVPlayer.status), context: &playerItemContext)
-        player.removeObserver(self, forKeyPath: #keyPath(AVPlayer.timeControlStatus), context: &playerItemContext)
-        player.removeObserver(self, forKeyPath: #keyPath(AVPlayer.currentItem.status), context: &playerItemContext)
-    }
-    
-    // MARK: - KVO Observation
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
-        // Check if this is our observation context
-        guard context == &playerItemContext else {
-            super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
-            return
-        }
-        
-        if keyPath == #keyPath(AVPlayer.status) {
-            let status: AVPlayer.Status
-            if let statusNumber = change?[.newKey] as? NSNumber {
-                status = AVPlayer.Status(rawValue: statusNumber.intValue) ?? .unknown
-            } else {
-                status = .unknown
-            }
-            
-            switch status {
-            case .readyToPlay:
-                print("Player is ready to play")
-            case .failed:
-                handlePlayerError(avPlayer?.error)
-            case .unknown:
-                print("Player status unknown")
-            @unknown default:
-                print("Player status unknown (default)")
-            }
-        } else if keyPath == #keyPath(AVPlayer.timeControlStatus) {
-            guard let player = object as? AVPlayer else { return }
-            
-            switch player.timeControlStatus {
-            case .paused:
-                print("Stream paused")
-            case .waitingToPlayAtSpecifiedRate:
-                print("Stream buffering...")
-            case .playing:
-                print("Stream playing")
-            @unknown default:
-                break
-            }
-        } else if keyPath == #keyPath(AVPlayer.currentItem.status) {
-            guard let playerItem = avPlayer?.currentItem else { return }
-            
-            switch playerItem.status {
-            case .readyToPlay:
-                print("Player item is ready to play")
-            case .failed:
-                handlePlayerError(playerItem.error)
-            case .unknown:
-                print("Player item status unknown")
-            @unknown default:
-                print("Player item status unknown (default)")
-            }
-        }
+        // Clean up VLC event manager
+        vlcEventManager.cleanup()
     }
     
     // MARK: - UI Action Handlers
@@ -374,6 +286,11 @@ class ViewController: UIViewController {
     
     @objc private func toggleStabilization(_ sender: UISwitch) {
         mjpegStreamView?.enableStabilization = sender.isOn
+        
+        // If using VLC, apply this to the gyroscope extractor's stabilization flag
+        if currentStreamMode == .vlcPlayer {
+            gyroscopeExtractor.enableStabilization = sender.isOn
+        }
     }
     
     @objc private func toggleAutoRotation() {
@@ -386,15 +303,13 @@ class ViewController: UIViewController {
         startRotateButton.setTitle(buttonTitle, for: .normal)
     }
     
-    @objc private func playerItemDidReachEnd(_ notification: Notification) {
-        // When the player reaches the end, try to restart
-        attemptStreamReconnection()
-    }
-    
     // MARK: - Error Handling
-    private func handlePlayerError(_ error: Error?) {
+    private func handleVLCError(_ error: Error?) {
+        // Log the error
         if let error = error {
-            print("AVPlayer error: \(error.localizedDescription)")
+            print("VLC Player error: \(error.localizedDescription)")
+        } else {
+            print("VLC Player encountered an unknown error")
         }
         
         handleStreamError()
@@ -418,7 +333,7 @@ class ViewController: UIViewController {
     
     private func attemptStreamReconnection() {
         // Stop current stream
-        cleanupAVPlayer()
+        cleanupVLCPlayer()
         
         // Try to reconnect after a short delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
@@ -429,5 +344,71 @@ class ViewController: UIViewController {
     // MARK: - UI Updates
     private func updateRotationLabels(firstRotation: String?, currentRotation: String?) {
         rotationValueLabel.text = "Data Received: \(currentRotation ?? "N/A")"
+    }
+}
+
+// MARK: - VLC Events Handler
+class VLCEventsHandler: NSObject {
+    
+    // Callback closures
+    var onStateChange: ((VLCMediaPlayerState) -> Void)?
+    var onError: ((Error?) -> Void)?
+    var onSnapshotTaken: ((UIImage?) -> Void)?
+    
+    // Reference to media player
+    var mediaPlayer: VLCMediaPlayer? {
+        didSet {
+            setupEventManager()
+        }
+    }
+    
+    private var snapshotTimer: Timer?
+    
+    // Setup event observer
+    private func setupEventManager() {
+        guard let player = mediaPlayer else { return }
+        
+        // Start periodic snapshots for frame capture
+        // This allows us to get frames from VLC for rotation
+        startSnapshotTimer()
+        
+        // Listen for state changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(mediaPlayerStateChanged(_:)),
+            name: NSNotification.Name(rawValue: "VLCMediaPlayerStateChanged"),
+            object: player
+        )
+    }
+    
+    @objc private func mediaPlayerStateChanged(_ notification: Notification) {
+        guard let player = notification.object as? VLCMediaPlayer else { return }
+        onStateChange?(player.state)
+        
+        if player.state == .error {
+            onError?(nil)
+        }
+    }
+    
+    private func startSnapshotTimer() {
+        // Take snapshots periodically to update the image for rotation
+        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self, let player = self.mediaPlayer, player.isPlaying else { return }
+            
+            // Take snapshot from VLC
+            let snapshot = player.lastSnapshot
+            self.onSnapshotTaken?(snapshot)
+        }
+    }
+    
+    func cleanup() {
+        NotificationCenter.default.removeObserver(self)
+        snapshotTimer?.invalidate()
+        snapshotTimer = nil
+        mediaPlayer = nil
+    }
+    
+    deinit {
+        cleanup()
     }
 }
