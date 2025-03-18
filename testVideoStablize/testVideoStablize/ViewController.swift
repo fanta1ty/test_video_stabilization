@@ -4,7 +4,6 @@ import Vision
 import CoreImage
 import MobileVLCKit
 
-// MARK: - View Controller
 class ViewController: UIViewController {
     
     // MARK: - Stream Mode Enum
@@ -88,15 +87,22 @@ class ViewController: UIViewController {
     private var mediaPlayer: VLCMediaPlayer?
     private var gyroscopeExtractor: GyroscopeExtractor!
     private var mjpegStreamView: MjpegStabilizeStreaming?
-    
-    // VLC delegate handling
-    private let vlcEventManager = VLCEventsHandler()
+    private var captureTimer: Timer?
+    private var rotationLayer: CALayer?
+    private var rotationImageView: UIImageView?
     
     // MARK: - Lifecycle Methods
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
         setupStream()
+    }
+    
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Update rotation layer frame when view layout changes
+        rotationLayer?.frame = imageView.bounds
+        rotationImageView?.frame = imageView.bounds
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -172,6 +178,8 @@ class ViewController: UIViewController {
             // Show stabilization controls
             stabilizationSwitch.isHidden = false
             stabilizationLabel.isHidden = false
+            // Set up rotation with the overlay approach
+            setupRotatableOverlay()
         case .mjpeg:
             setupMJPEGStream()
         }
@@ -183,11 +191,9 @@ class ViewController: UIViewController {
         self.mediaPlayer = player
         
         // Set up image container as drawable
-        // Note: VLC will render directly to this view
         player.drawable = imageView
         
-        // Configure media
-        let media = VLCMedia(url: StreamConfig.vlcStreamURL)
+        let media = VLCMedia(url: StreamConfig.streamURL)
         
         // Configure media options for low latency
         media.addOption(":network-caching=300")
@@ -196,44 +202,55 @@ class ViewController: UIViewController {
         
         player.media = media
         
-        // Set up event handling
-        setupVLCEvents(for: player)
+        // Set up time changed notification for frame capture
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(mediaPlayerTimeChanged),
+            name: NSNotification.Name(rawValue: "VLCMediaPlayerTimeChanged"),
+            object: player
+        )
+        
+        // Set up state changed notification
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(mediaPlayerStateChanged),
+            name: NSNotification.Name(rawValue: "VLCMediaPlayerStateChanged"),
+            object: player
+        )
         
         // Start playback
         player.play()
+        
+        // Set up capture timer as backup
+        captureTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.captureFrame()
+        }
     }
     
-    private func setupVLCEvents(for player: VLCMediaPlayer) {
-        // Set up event manager for VLC player
-        vlcEventManager.mediaPlayer = player
+    private func setupRotatableOverlay() {
+        // Create a separate imageView for rotation that overlays the VLC player
+        let overlay = UIImageView(frame: imageView.bounds)
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.contentMode = .scaleAspectFill
+        overlay.backgroundColor = .clear
+        overlay.isUserInteractionEnabled = false
         
-        // Set error handler
-        vlcEventManager.onError = { [weak self] error in
-            DispatchQueue.main.async {
-                self?.handleVLCError(error)
-            }
-        }
+        // Add it on top of the regular imageView
+        view.addSubview(overlay)
         
-        // Handle media state changes
-        vlcEventManager.onStateChange = { [weak self] state in
-            DispatchQueue.main.async {
-                switch state {
-                case .error:
-                    self?.handleVLCError(nil)
-                case .ended:
-                    self?.attemptStreamReconnection()
-                default:
-                    break
-                }
-            }
-        }
+        // Match dimensions with the main imageView
+        NSLayoutConstraint.activate([
+            overlay.leadingAnchor.constraint(equalTo: imageView.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: imageView.trailingAnchor),
+            overlay.topAnchor.constraint(equalTo: imageView.topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: imageView.bottomAnchor)
+        ])
         
-        // Capture frames from VLC for custom processing if needed
-        vlcEventManager.onSnapshotTaken = { [weak self] image in
-            guard let self = self, let capturedImage = image else { return }
-            // Update gyroscope extractor with the new frame
-            self.gyroscopeExtractor.streamDidUpdateImage(capturedImage)
-        }
+        // Store reference
+        rotationImageView = overlay
+        
+        // Update gyroscope extractor to use this view for rotation
+        gyroscopeExtractor.rotationImageView = overlay
     }
     
     private func setupMJPEGStream() {
@@ -275,8 +292,61 @@ class ViewController: UIViewController {
         mediaPlayer?.stop()
         mediaPlayer = nil
         
-        // Clean up VLC event manager
-        vlcEventManager.cleanup()
+        // Stop frame capture timer
+        captureTimer?.invalidate()
+        captureTimer = nil
+        
+        // Remove notification observers
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name(rawValue: "VLCMediaPlayerTimeChanged"), object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name(rawValue: "VLCMediaPlayerStateChanged"), object: nil)
+    }
+    
+    // MARK: - Frame Capture
+    private func captureFrame() {
+        guard let player = mediaPlayer, player.isPlaying else { return }
+        
+        // Capture from the imageView where VLC is rendering
+        if let capturedImage = captureScreen(view: imageView) {
+            // Check if we are using rotation overlay or direct rotation
+            if let rotationView = rotationImageView {
+                rotationView.image = capturedImage
+            }
+            
+            // Update gyroscope extractor with new frame
+            gyroscopeExtractor.streamDidUpdateImage(capturedImage)
+        }
+    }
+    
+    private func captureScreen(view: UIView) -> UIImage? {
+        // Begin graphics context
+        UIGraphicsBeginImageContextWithOptions(view.bounds.size, false, 0.0)
+        defer { UIGraphicsEndImageContext() }
+        
+        guard let context = UIGraphicsGetCurrentContext() else { return nil }
+        
+        // Render the view's layer into the context
+        view.layer.render(in: context)
+        
+        // Get the image from context
+        return UIGraphicsGetImageFromCurrentImageContext()
+    }
+    
+    // MARK: - VLC Notifications
+    @objc private func mediaPlayerTimeChanged(_ notification: Notification) {
+        captureFrame()
+    }
+    
+    @objc private func mediaPlayerStateChanged(_ notification: Notification) {
+        guard let player = notification.object as? VLCMediaPlayer else { return }
+        
+        switch player.state {
+        case .error:
+            handleVLCError(nil)
+        case .ended:
+            attemptStreamReconnection()
+        default:
+            break
+        }
     }
     
     // MARK: - UI Action Handlers
@@ -344,71 +414,5 @@ class ViewController: UIViewController {
     // MARK: - UI Updates
     private func updateRotationLabels(firstRotation: String?, currentRotation: String?) {
         rotationValueLabel.text = "Data Received: \(currentRotation ?? "N/A")"
-    }
-}
-
-// MARK: - VLC Events Handler
-class VLCEventsHandler: NSObject {
-    
-    // Callback closures
-    var onStateChange: ((VLCMediaPlayerState) -> Void)?
-    var onError: ((Error?) -> Void)?
-    var onSnapshotTaken: ((UIImage?) -> Void)?
-    
-    // Reference to media player
-    var mediaPlayer: VLCMediaPlayer? {
-        didSet {
-            setupEventManager()
-        }
-    }
-    
-    private var snapshotTimer: Timer?
-    
-    // Setup event observer
-    private func setupEventManager() {
-        guard let player = mediaPlayer else { return }
-        
-        // Start periodic snapshots for frame capture
-        // This allows us to get frames from VLC for rotation
-        startSnapshotTimer()
-        
-        // Listen for state changes
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(mediaPlayerStateChanged(_:)),
-            name: NSNotification.Name(rawValue: "VLCMediaPlayerStateChanged"),
-            object: player
-        )
-    }
-    
-    @objc private func mediaPlayerStateChanged(_ notification: Notification) {
-        guard let player = notification.object as? VLCMediaPlayer else { return }
-        onStateChange?(player.state)
-        
-        if player.state == .error {
-            onError?(nil)
-        }
-    }
-    
-    private func startSnapshotTimer() {
-        // Take snapshots periodically to update the image for rotation
-        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self, let player = self.mediaPlayer, player.isPlaying else { return }
-            
-            // Take snapshot from VLC
-            let snapshot = player.lastSnapshot
-            self.onSnapshotTaken?(snapshot)
-        }
-    }
-    
-    func cleanup() {
-        NotificationCenter.default.removeObserver(self)
-        snapshotTimer?.invalidate()
-        snapshotTimer = nil
-        mediaPlayer = nil
-    }
-    
-    deinit {
-        cleanup()
     }
 }

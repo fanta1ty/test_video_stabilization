@@ -5,6 +5,72 @@ import Vision
 import CoreImage
 
 class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
+    var rotationImageView: UIImageView? {
+        didSet {
+            // Update rotation handling to use the new view if set
+            if let _ = rotationImageView {
+                print("Using separate rotation image view")
+            }
+        }
+    }
+    
+    func applyRotationToImageOverlay(_ axes: ThreeDimension) {
+        // Implementation for applying rotation to overlay view
+        // This would need to be called from your rotation update logic
+        guard let rotationView = rotationImageView,
+              let neutralRoll = self.neutralRoll,
+              let neutralPitch = self.neutralPitch,
+              let neutralYaw = self.neutralYaw else {
+            return
+        }
+        
+        // Calculate delta rotations
+        let deltaYaw = axes.yaw - neutralYaw
+        
+        // Apply rotation to the overlay view
+        if enableRotation && startAutoRotation {
+            // Use deltaYaw for horizontal rotation
+            let normalizedDelta = normalizeAngle(deltaYaw)
+            
+            // Skip rotation if the angle is very small
+            if abs(normalizedDelta) < 0.1 {
+                return
+            }
+            
+            // Apply rotation to the overlay view
+            DispatchQueue.main.async {
+                // Apply rotation transformation
+                let radians = normalizedDelta * CGFloat.pi / 180.0
+                rotationView.transform = CGAffineTransform(rotationAngle: radians)
+            }
+        }
+    }
+    
+    // Helper method to normalize angle (copied from your existing implementation)
+    private func normalizeAngle(_ angle: CGFloat) -> CGFloat {
+        // Keep angle in the -180 to 180 range
+        var normalized = angle.truncatingRemainder(dividingBy: 360)
+        if normalized > 180 {
+            normalized -= 360
+        } else if normalized < -180 {
+            normalized += 360
+        }
+        
+        // Apply dead zone for small angles to prevent jitter
+        if abs(normalized) < 2.0 {
+            return 0
+        }
+        
+        // Optional: Snap to cardinal angles if close
+        let snapAngles: [CGFloat] = [0, 90, 180, -90, -180]
+        for snapAngle in snapAngles {
+            if abs(normalized - snapAngle) < 5.0 {
+                return snapAngle
+            }
+        }
+        
+        return normalized
+    }
     
     // MARK: - Enums
     
@@ -532,32 +598,6 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         }
         
         return rotatedImage
-    }
-    
-    /// Normalize angle for smoother rotation
-    private func normalizeAngle(_ angle: CGFloat) -> CGFloat {
-        // Keep angle in the -180 to 180 range
-        var normalized = angle.truncatingRemainder(dividingBy: 360)
-        if normalized > 180 {
-            normalized -= 360
-        } else if normalized < -180 {
-            normalized += 360
-        }
-        
-        // Apply dead zone for small angles to prevent jitter
-        if abs(normalized) < 2.0 {
-            return 0
-        }
-        
-        // Optional: Snap to cardinal angles if close
-        let snapAngles: [CGFloat] = [0, 90, 180, -90, -180]
-        for snapAngle in snapAngles {
-            if abs(normalized - snapAngle) < 5.0 {
-                return snapAngle
-            }
-        }
-        
-        return normalized
     }
     
     /// Update the original image when stream provides a new frame
