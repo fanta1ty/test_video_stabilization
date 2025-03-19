@@ -17,11 +17,20 @@ class ViewController: UIViewController {
     private let currentStreamMode: StreamMode = .vlcPlayer
     
     // MARK: - UI Components
+    // Container view to handle clipping
+    private lazy var containerView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = .black
+        view.clipsToBounds = true
+        return view
+    }()
+    
     private lazy var imageView: UIImageView = {
         let view = UIImageView()
         view.translatesAutoresizingMaskIntoConstraints = false
         view.contentMode = .scaleAspectFill
-        view.backgroundColor = .white
+        view.backgroundColor = .black
         view.clipsToBounds = true
         return view
     }()
@@ -110,7 +119,13 @@ class ViewController: UIViewController {
     private func setupUI() {
         view.backgroundColor = .white
         
-        view.addSubview(imageView)
+        // Add container view
+        view.addSubview(containerView)
+        
+        // Add imageView to container view
+        containerView.addSubview(imageView)
+        
+        // Add other UI elements
         view.addSubview(rotationLabel)
         view.addSubview(stabilizationLabel)
         view.addSubview(rotationSwitch)
@@ -124,14 +139,20 @@ class ViewController: UIViewController {
     
     private func setupConstraints() {
         NSLayoutConstraint.activate([
-            // Image view constraints
-            imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
-            imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
-            imageView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30),
-            imageView.heightAnchor.constraint(equalToConstant: 300),
+            // Container view constraints
+            containerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
+            containerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
+            containerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30),
+            containerView.heightAnchor.constraint(equalToConstant: 300),
+            
+            // Image view constraints - fill container view
+            imageView.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            imageView.widthAnchor.constraint(equalTo: containerView.widthAnchor),
+            imageView.heightAnchor.constraint(equalTo: containerView.heightAnchor),
             
             // Rotation label and switch constraints
-            rotationLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 150),
+            rotationLabel.topAnchor.constraint(equalTo: containerView.bottomAnchor, constant: 150),
             rotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             rotationSwitch.centerYAnchor.constraint(equalTo: rotationLabel.centerYAnchor),
             rotationSwitch.leadingAnchor.constraint(equalTo: rotationLabel.trailingAnchor, constant: 10),
@@ -308,7 +329,8 @@ class ViewController: UIViewController {
     }
     
     private func setupGyroscopeExtractor() {
-        gyroscopeExtractor = GyroscopeExtractor(imageView: imageView, containerView: view)
+        // Use the container view as the container for the gyroscope extractor
+        gyroscopeExtractor = GyroscopeExtractor(imageView: imageView, containerView: containerView)
         gyroscopeExtractor.contentURL = StreamConfig.gyroscopeURL
         gyroscopeExtractor.rotationUpdateHandler = { [weak self] firstRotation, currentRotation in
             DispatchQueue.main.async {
