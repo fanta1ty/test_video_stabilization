@@ -13,6 +13,23 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         case playing
     }
     
+    // MARK: - Calibration Constants
+    private struct CalibrationPoint {
+        let physicalAngle: CGFloat
+        let roll: CGFloat
+        let pitch: CGFloat
+        let yaw: CGFloat
+    }
+    
+    // Calibration data based on your measurements
+    private let calibrationPoints: [CalibrationPoint] = [
+        CalibrationPoint(physicalAngle: 0, roll: -136.00, pitch: 18.00, yaw: -130.00),
+        CalibrationPoint(physicalAngle: 90, roll: -101.00, pitch: 42.00, yaw: -36.00),
+        CalibrationPoint(physicalAngle: 180, roll: -90.00, pitch: 3.00, yaw: -38.00),
+        CalibrationPoint(physicalAngle: -90, roll: -96.00, pitch: -35.00, yaw: -30.00),
+        CalibrationPoint(physicalAngle: -180, roll: -92.00, pitch: 3.00, yaw: -36.00)
+    ]
+    
     // MARK: - Properties
     private var receivedData = Data()
     private var status: Status = .stopped
@@ -41,9 +58,13 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     // Original image reference for rotation
     private var originalImage: UIImage?
     
-    // Calibration values
-    private var zeroDegreesYaw: CGFloat = -165.0
-    private var ninetyDegreesYaw: CGFloat = -46.0
+    // Indicate which sensor value to use for mapping to physical angle
+    private var primaryRotationAxis: RotationAxis = .yaw
+    
+    // MARK: - Enums
+    private enum RotationAxis {
+        case roll, pitch, yaw
+    }
     
     // MARK: - Public Properties
     open var authenticationHandler: ((URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?))?
@@ -74,13 +95,8 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         
-        // Load calibration values if previously saved
-        if let zeroYaw = UserDefaults.standard.value(forKey: "calibration_zero_yaw") as? Float {
-            zeroDegreesYaw = CGFloat(zeroYaw)
-        }
-        if let ninetyYaw = UserDefaults.standard.value(forKey: "calibration_ninety_yaw") as? Float {
-            ninetyDegreesYaw = CGFloat(ninetyYaw)
-        }
+        // Determine the best sensor axis to use for rotation mapping
+        determineBestRotationAxis()
     }
     
     deinit {
@@ -283,46 +299,6 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         firstRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°"
     }
 
-    private func applyRotation(image: UIImage, axes: ThreeDimension) -> UIImage? {
-        guard neutralPitch != nil, neutralYaw != nil else { return nil }
-        let deltaRoll = axes.roll - self.neutralRoll!
-        let deltaYaw = axes.yaw - self.neutralYaw!
-        let deltaPitch = axes.pitch - self.neutralPitch!
-        
-        let formattedRoll = String(format: "%.2f", axes.roll)
-        let formattedPitch = String(format: "%.2f", axes.pitch)
-        let formattedYaw = String(format: "%.2f", axes.yaw)
-        let formattedDelta = String(format: "%.2f", deltaPitch)
-        
-        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
-        rotationUpdateHandler?(firstRotation, currentRotation)
-        
-        let delta = self.normalizeAngle(deltaPitch)
-        let radians = delta * .pi / 180
-        
-        let originalSize = image.size
-        let rotatedSize = CGRect(origin: .zero, size: originalSize)
-            .applying(CGAffineTransform(rotationAngle: radians))
-            .integral
-            .size
-        let renderer = UIGraphicsImageRenderer(size: image.size)
-        return renderer.image { context in
-            let context = context.cgContext
-            context.setFillColor(UIColor.clear.cgColor)
-            context.fill(CGRect(origin: .zero, size: rotatedSize))
-            
-            context.translateBy(x: image.size.width / 2, y: image.size.height / 2)
-            context.rotate(by: radians)
-            
-            image.draw(in: CGRect(
-                x: -originalSize.width / 2,
-                y: -originalSize.height / 2,
-                width: originalSize.width,
-                height: originalSize.height
-            ))
-        }
-    }
-
     private func normalizeAngle(_ angle: CGFloat) -> CGFloat {
         // Normalize angle for smoother rotation
         var normalized = angle.truncatingRemainder(dividingBy: 360)
@@ -351,7 +327,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     func startGyroscopeUpdates() {
         // Create a timer that fetches gyroscope data every 100ms (10 times per second)
         gyroTimer = Timer.scheduledTimer(
-            timeInterval: 0.1,
+            timeInterval: 0.6,
             target: self,
             selector: #selector(playStream),
             userInfo: nil,
@@ -364,47 +340,133 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         gyroTimer = nil
     }
     
-    // New method to map sensor values to physical degrees
-    func mapSensorToDegrees(roll: CGFloat, pitch: CGFloat, yaw: CGFloat) -> CGFloat {
-        // Using yaw as it has the largest difference between 0° and 90°
-        let yawRange = abs(ninetyDegreesYaw - zeroDegreesYaw) // Should be around 119
-        let physicalRange: CGFloat = 90 // 0° to 90°
+    // MARK: - Rotation Mapping Methods
+    
+    // Determine which sensor axis (roll, pitch, or yaw) has the most consistent
+    // and useful changes for mapping to physical rotation
+    private func determineBestRotationAxis() {
+        // Calculate the range of values for each axis
+        let rollValues = calibrationPoints.map { $0.roll }
+        let pitchValues = calibrationPoints.map { $0.pitch }
+        let yawValues = calibrationPoints.map { $0.yaw }
         
-        // Calculate scale factor
-        let scaleFactor = physicalRange / yawRange
+        let rollRange = rollValues.max()! - rollValues.min()!
+        let pitchRange = pitchValues.max()! - pitchValues.min()!
+        let yawRange = yawValues.max()! - yawValues.min()!
         
-        // Linear mapping from sensor yaw to physical degrees
-        let normalizedYaw = (yaw - zeroDegreesYaw) * scaleFactor
-        
-        return normalizedYaw
+        // Use the axis with the largest range of values
+        if yawRange >= rollRange && yawRange >= pitchRange {
+            primaryRotationAxis = .yaw
+        } else if pitchRange >= rollRange {
+            primaryRotationAxis = .pitch
+        } else {
+            primaryRotationAxis = .roll
+        }
     }
     
-    // Updated rotation method using mapping
+    // Map sensor readings to physical angles using the calibration points
+    func mapSensorToPhysicalAngle(axes: ThreeDimension) -> CGFloat {
+        // Get the sensor value for the chosen axis
+        let sensorValue: CGFloat
+        switch primaryRotationAxis {
+        case .roll:
+            sensorValue = axes.roll
+        case .pitch:
+            sensorValue = axes.pitch
+        case .yaw:
+            sensorValue = axes.yaw
+        }
+        
+        // Find the two calibration points that the sensor value falls between
+        var closestLower: CalibrationPoint?
+        var closestUpper: CalibrationPoint?
+        var closestPoint: CalibrationPoint?
+        var closestDistance: CGFloat = .greatestFiniteMagnitude
+        
+        for point in calibrationPoints {
+            let pointValue: CGFloat
+            switch primaryRotationAxis {
+            case .roll:
+                pointValue = point.roll
+            case .pitch:
+                pointValue = point.pitch
+            case .yaw:
+                pointValue = point.yaw
+            }
+            
+            let distance = abs(pointValue - sensorValue)
+            if distance < closestDistance {
+                closestDistance = distance
+                closestPoint = point
+            }
+            
+            if pointValue <= sensorValue && (closestLower == nil || pointValue > getAxisValue(closestLower!, axis: primaryRotationAxis)) {
+                closestLower = point
+            }
+            
+            if pointValue >= sensorValue && (closestUpper == nil || pointValue < getAxisValue(closestUpper!, axis: primaryRotationAxis)) {
+                closestUpper = point
+            }
+        }
+        
+        // If we couldn't find appropriate bounds, use the closest point
+        if closestLower == nil || closestUpper == nil {
+            return closestPoint!.physicalAngle
+        }
+        
+        // Linear interpolation between the two points
+        let lowerValue = getAxisValue(closestLower!, axis: primaryRotationAxis)
+        let upperValue = getAxisValue(closestUpper!, axis: primaryRotationAxis)
+        
+        // Avoid division by zero
+        if lowerValue == upperValue {
+            return closestLower!.physicalAngle
+        }
+        
+        let proportion = (sensorValue - lowerValue) / (upperValue - lowerValue)
+        return closestLower!.physicalAngle + proportion * (closestUpper!.physicalAngle - closestLower!.physicalAngle)
+    }
+    
+    // Helper method to get the value for a specific axis from a calibration point
+    private func getAxisValue(_ point: CalibrationPoint, axis: RotationAxis) -> CGFloat {
+        switch axis {
+        case .roll:
+            return point.roll
+        case .pitch:
+            return point.pitch
+        case .yaw:
+            return point.yaw
+        }
+    }
+    
+    // Updated rotation method using the new mapping
     func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
-        guard let neutralPitch = self.neutralPitch,
-              let neutralYaw = self.neutralYaw,
-              let neutralRoll = self.neutralRoll else { return }
+        guard let neutralRoll = self.neutralRoll,
+              let neutralPitch = self.neutralPitch,
+              let neutralYaw = self.neutralYaw else { return }
         
         // Format rotation data for display
         let formattedRoll = String(format: "%.2f", axes.roll)
         let formattedPitch = String(format: "%.2f", axes.pitch)
         let formattedYaw = String(format: "%.2f", axes.yaw)
         
-        // Map sensor values to physical degrees
-        let physicalDegrees = mapSensorToDegrees(roll: axes.roll, pitch: axes.pitch, yaw: axes.yaw)
+        // Map current sensor values to physical degrees
+        let currentPhysicalAngle = mapSensorToPhysicalAngle(axes: axes)
         
-        // Calculate physical rotation by subtracting the neutral position
-        let neutralDegrees = mapSensorToDegrees(roll: neutralRoll, pitch: neutralPitch, yaw: neutralYaw)
-        let rotationValue = physicalDegrees - neutralDegrees
+        // Map neutral sensor values to physical degrees
+        let neutralThreeDimension = ThreeDimension(pitch: neutralPitch, roll: neutralRoll, yaw: neutralYaw)
+        let neutralPhysicalAngle = mapSensorToPhysicalAngle(axes: neutralThreeDimension)
         
-        let formattedDelta = String(format: "%.2f", rotationValue)
+        // Calculate the relative rotation
+        let rotationAngle = currentPhysicalAngle - neutralPhysicalAngle
+        let formattedDelta = String(format: "%.2f", rotationAngle)
         
         // Update rotation information
         currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
         rotationUpdateHandler?(firstRotation, currentRotation)
         
         // Apply normalized rotation
-        let normalizedDelta = normalizeAngle(rotationValue)
+        let normalizedDelta = normalizeAngle(rotationAngle)
         let radians = normalizedDelta * .pi / 180
         
         // Apply rotation transform to the UIImageView directly
@@ -412,21 +474,5 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
             imageView.transform = CGAffineTransform(rotationAngle: radians)
         }
     }
-    
-    // Calibration method for easy adjustment
-    func calibrateWithMeasurements(
-        zeroDegreesValues: (roll: CGFloat, pitch: CGFloat, yaw: CGFloat),
-        ninetyDegreesValues: (roll: CGFloat, pitch: CGFloat, yaw: CGFloat)
-    ) {
-        // Store calibration values for the mapping function
-        zeroDegreesYaw = zeroDegreesValues.yaw
-        ninetyDegreesYaw = ninetyDegreesValues.yaw
-        
-        // Save to UserDefaults for persistence
-        UserDefaults.standard.set(Float(zeroDegreesValues.yaw), forKey: "calibration_zero_yaw")
-        UserDefaults.standard.set(Float(ninetyDegreesValues.yaw), forKey: "calibration_ninety_yaw")
-        
-        // Optionally, reset neutral values to force recalibration
-        resetCalibration()
-    }
 }
+
