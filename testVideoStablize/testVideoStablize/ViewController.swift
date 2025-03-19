@@ -183,7 +183,6 @@ class ViewController: UIViewController {
         player.drawable = imageView
         
         // Configure media
-        
         let media = VLCMedia(url: StreamConfig.vlcStreamURL)
         
         // Configure media options for low latency
@@ -210,6 +209,91 @@ class ViewController: UIViewController {
             name: NSNotification.Name(rawValue: "VLCMediaPlayerStateChanged"),
             object: player
         )
+        
+        // Set up time changed notification to apply rotation
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(mediaPlayerTimeChanged),
+            name: NSNotification.Name(rawValue: "VLCMediaPlayerTimeChanged"),
+            object: player
+        )
+    }
+    
+    @objc private func mediaPlayerTimeChanged(_ notification: Notification) {
+        // When VLC updates the frame, apply rotation
+        if rotationSwitch.isOn && gyroscopeExtractor.startAutoRotation {
+            applyRotation()
+        }
+    }
+    
+    private func applyRotation() {
+        guard let pitch = gyroscopeExtractor.neutralPitch,
+              let yaw = gyroscopeExtractor.neutralYaw,
+              let roll = gyroscopeExtractor.neutralRoll else { return }
+        
+        // Apply rotation based on the current gyroscope data
+        if let currentRotation = gyroscopeExtractor.currentRotation {
+            // Extract the rotation angle from the gyroscope data
+            let rotationAngle = extractRotationAngle(from: currentRotation)
+            
+            // Convert angle to radians
+            let radians = rotationAngle * CGFloat.pi / 180
+            
+            // Calculate the scale factor needed to fill the parent after rotation
+            let scale = calculateScaleToFillAfterRotation(angle: radians)
+            
+            // Apply both rotation and scaling to ensure corners reach parent boundaries
+            UIView.animate(withDuration: 0.1) {
+                // Combine rotation and scaling transformations
+                let rotationTransform = CGAffineTransform(rotationAngle: radians)
+                let scaledTransform = rotationTransform.scaledBy(x: scale, y: scale)
+                
+                self.imageView.transform = scaledTransform
+            }
+        }
+    }
+    
+    private func extractRotationAngle(from rotationString: String) -> CGFloat {
+        // Extract the rotation angle from the rotation string
+        // Look for the "Rotation: " part and extract the number
+        if let rotationRange = rotationString.range(of: "Rotation: ") {
+            let startIndex = rotationRange.upperBound
+            
+            // Find the degree symbol after the start index
+            if let endRange = rotationString.range(of: "°", options: [], range: startIndex..<rotationString.endIndex) {
+                // Get the substring between "Rotation: " and "°"
+                let valueString = String(rotationString[startIndex..<endRange.lowerBound])
+                
+                // Convert to Double then CGFloat
+                if let doubleValue = Double(valueString) {
+                    return CGFloat(doubleValue)
+                }
+            }
+        }
+        return 0.0
+    }
+    
+    /// Calculate the scale factor needed to ensure the view fills its parent after rotation
+    private func calculateScaleToFillAfterRotation(angle: CGFloat) -> CGFloat {
+        // For a rectangular view, we need to calculate how much to scale
+        // based on the rotation angle to ensure no empty corners
+        
+        // A simplified approach that works well:
+        // When rotated 45°, the scale needed is about 1.4 (√2)
+        // When rotated 0° or 90°, the scale needed is 1.0
+        
+        // Normalize angle to 0-90° range for calculation
+        let normalizedAngle = abs(angle.truncatingRemainder(dividingBy: .pi/2))
+        
+        // Calculate scale - maximum at 45° (π/4)
+        // sin(2*angle) gives us a curve that's 0 at 0° and 90°, and 1 at 45°
+        let baseScale = 1.0
+        let maxExtraScale = 0.42 // sqrt(2) - 1, rounded up slightly for safety
+        
+        // Scale factor formula - peaks at 45 degrees
+        let extraScale = sin(2 * normalizedAngle) * maxExtraScale
+        
+        return baseScale + extraScale
     }
     
     private func setupMJPEGStream() {
@@ -229,6 +313,13 @@ class ViewController: UIViewController {
         gyroscopeExtractor.rotationUpdateHandler = { [weak self] firstRotation, currentRotation in
             DispatchQueue.main.async {
                 self?.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
+                
+                // Apply rotation if enabled
+                if self?.rotationSwitch.isOn == true &&
+                   self?.gyroscopeExtractor.startAutoRotation == true &&
+                   self?.currentStreamMode == .vlcPlayer {
+                    self?.applyRotation()
+                }
             }
         }
         gyroscopeExtractor.playStream()
@@ -253,6 +344,7 @@ class ViewController: UIViewController {
         
         // Remove notification observers
         NotificationCenter.default.removeObserver(self, name: NSNotification.Name(rawValue: "VLCMediaPlayerStateChanged"), object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name(rawValue: "VLCMediaPlayerTimeChanged"), object: nil)
     }
     
     // MARK: - VLC Notifications
@@ -264,6 +356,8 @@ class ViewController: UIViewController {
             handleVLCError(nil)
         case .ended:
             attemptStreamReconnection()
+        case .playing:
+            print("VLC is playing")
         default:
             break
         }
@@ -272,6 +366,13 @@ class ViewController: UIViewController {
     // MARK: - UI Action Handlers
     @objc private func toggleRotation(_ sender: UISwitch) {
         gyroscopeExtractor.enableRotation = sender.isOn
+        
+        // Reset rotation if disabled
+        if !sender.isOn {
+            UIView.animate(withDuration: 0.3) {
+                self.imageView.transform = .identity
+            }
+        }
     }
     
     @objc private func toggleStabilization(_ sender: UISwitch) {
@@ -291,6 +392,13 @@ class ViewController: UIViewController {
         ? "Start Auto Rotation & Auto Stabilization"
         : "Stop Auto Rotation & Auto Stabilization"
         startRotateButton.setTitle(buttonTitle, for: .normal)
+        
+        // Reset rotation if auto rotation is turned off
+        if isActive {
+            UIView.animate(withDuration: 0.3) {
+                self.imageView.transform = .identity
+            }
+        }
     }
     
     // MARK: - Error Handling
