@@ -38,6 +38,9 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     
     private var gyroTimer: Timer?
     
+    // Original image reference for rotation
+    private var originalImage: UIImage?
+    
     // MARK: - Public Properties
     open var authenticationHandler: ((URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?))?
     open var rotationUpdateHandler: ((_ firstRotation: String?, _ currentRotation: String?) -> Void)?
@@ -48,9 +51,15 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     open var imageView: UIImageView
     open var enableRotation: Bool = true
     open var enableStabilization: Bool = false
-    open var startAutoRotation: Bool = false
+    open var startAutoRotation: Bool = false {
+        didSet {
+            // Reset neutral values when auto rotation is toggled
+            if startAutoRotation && !oldValue {
+                resetCalibration()
+            }
+        }
+    }
     let containerView: UIView
-
 
     // MARK: - Initializer
     public init(imageView: UIImageView, containerView: UIView) {
@@ -90,6 +99,43 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         status = .stopped
         dataTask?.cancel()
     }
+    
+    /// Reset calibration values
+    open func resetCalibration() {
+        neutralRoll = nil
+        neutralPitch = nil
+        neutralYaw = nil
+        firstRotation = nil
+        
+        // Reset rotation on the image view
+        DispatchQueue.main.async { [weak self] in
+            self?.imageView.transform = .identity
+        }
+    }
+    
+    /// Update the original image for rotation
+    open func streamDidUpdateImage(_ image: UIImage) {
+        originalImage = image
+        
+        // If we have a new image and rotation is active, apply the rotation
+        if enableRotation && startAutoRotation,
+           let roll = neutralRoll,
+           let pitch = neutralPitch,
+           let yaw = neutralYaw {
+            
+            // Create a fake ThreeDimension with the current neutral values
+            // This will trigger a refresh of the rotation based on current angles
+            let currentAxes = ThreeDimension(
+                pitch: pitch,
+                roll: roll,
+                yaw: yaw
+            )
+            
+            DispatchQueue.main.async { [weak self] in
+                self?.applyRotationToImageView(self!.imageView, axes: currentAxes)
+            }
+        }
+    }
 
     // MARK: - URLSessionDataDelegate
     open func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
@@ -112,12 +158,12 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         _Concurrency.Task {
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                // guard let image = self.imageView.image else { return }
-                // self.processFrame(image: image, axes: threeDimensionAxes)
-                self.applyRotationToImageView(self.imageView, axes: threeDimensionAxes)
+                // Apply rotation if enabled
+                if self.enableRotation && self.startAutoRotation {
+                    self.applyRotationToImageView(self.imageView, axes: threeDimensionAxes)
+                }
             }
         }
-        
         
         status = .stopped
     }
@@ -162,17 +208,19 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
 
     private func processFrame(image: UIImage, axes: ThreeDimension) {
         processingQueue.async {
-            let rotatedImage = self.applyRotation(image: image, axes: axes)
-
-            if self.enableStabilization {
-                self.stabilizeFrame(rotatedImage ?? image)
-            } else if self.enableRotation {
+            // Store original image for future reference
+            self.originalImage = image
+            
+            if self.enableRotation && self.startAutoRotation {
+                // Apply rotation through direct transform
                 DispatchQueue.main.async {
-                    self.imageView.image = rotatedImage ?? image
+                    self.applyRotationToImageView(self.imageView, axes: axes)
                 }
+            } else if self.enableStabilization {
+                self.stabilizeFrame(image)
             } else {
                 DispatchQueue.main.async {
-                    self.imageView.image =  image
+                    self.imageView.image = image
                 }
             }
         }
@@ -215,7 +263,12 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         neutralRoll = roll
         neutralPitch = pitch
         neutralYaw = yaw
-        // firstRotation = "\n- Roll: \(roll)°\n- Pitch: \(pitch)°\n- Yaw: \(yaw)°"
+        
+        let formattedRoll = String(format: "%.2f", roll)
+        let formattedPitch = String(format: "%.2f", pitch)
+        let formattedYaw = String(format: "%.2f", yaw)
+        
+        firstRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°"
     }
 
     private func applyRotation(image: UIImage, axes: ThreeDimension) -> UIImage? {
@@ -224,12 +277,12 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         let deltaYaw = axes.yaw - self.neutralYaw!
         let deltaPitch = axes.pitch - self.neutralPitch!
         
-        let deltaRollLog = "Delta roll: \(axes.roll) - (\(self.neutralRoll ?? 0)) = \(deltaRoll)°"
-        let deltaYawLog = "Delta yaw: \(axes.yaw) - (\(self.neutralYaw ?? 0)) = \(deltaYaw) °"
-        let deltaPitchLog = "Delta pitch: \(axes.pitch) - (\(self.neutralPitch ?? 0)) = \(deltaPitch)°"
-        let deltaShow = "Rotation: \(deltaPitch)°"
+        let formattedRoll = String(format: "%.2f", axes.roll)
+        let formattedPitch = String(format: "%.2f", axes.pitch)
+        let formattedYaw = String(format: "%.2f", axes.yaw)
+        let formattedDelta = String(format: "%.2f", deltaPitch)
         
-        currentRotation = "\n- Roll: \(axes.roll)°\n- Pitch: \(axes.pitch)°\n- Yaw: \(axes.yaw)°\n\n\(deltaShow)"
+        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
         rotationUpdateHandler?(firstRotation, currentRotation)
         
         let delta = self.normalizeAngle(deltaPitch)
@@ -259,11 +312,28 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     }
 
     private func normalizeAngle(_ angle: CGFloat) -> CGFloat {
-        switch abs(angle) {
-        case 0...10: return 0
-        case 90...110: return 90
-        default: return angle
+        // Normalize angle for smoother rotation
+        var normalized = angle.truncatingRemainder(dividingBy: 360)
+        if normalized > 180 {
+            normalized -= 360
+        } else if normalized < -180 {
+            normalized += 360
         }
+        
+        // Apply dead zone for small angles to prevent jitter
+        if abs(normalized) < 2.0 {
+            return 0
+        }
+        
+        // Snap to cardinal angles if close
+        let snapAngles: [CGFloat] = [0, 90, 180, -90, -180]
+        for snapAngle in snapAngles {
+            if abs(normalized - snapAngle) < 5.0 {
+                return snapAngle
+            }
+        }
+        
+        return normalized
     }
     
     func startGyroscopeUpdates() {
@@ -282,62 +352,36 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         gyroTimer = nil
     }
     
-    private func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
-        guard neutralPitch != nil, neutralYaw != nil else { return }
-        let deltaRoll = axes.roll - self.neutralRoll!
-        let deltaYaw = axes.yaw - self.neutralYaw!
-        let deltaPitch = axes.pitch - self.neutralPitch!
+    func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
+        guard let neutralPitch = self.neutralPitch,
+              let neutralYaw = self.neutralYaw,
+              let neutralRoll = self.neutralRoll else { return }
         
-        let deltaRollLog = "Delta roll: \(axes.roll) - (\(self.neutralRoll ?? 0)) = \(deltaRoll)°"
-        let deltaYawLog = "Delta yaw: \(axes.yaw) - (\(self.neutralYaw ?? 0)) = \(deltaYaw) °"
-        let deltaPitchLog = "Delta pitch: \(axes.pitch) - (\(self.neutralPitch ?? 0)) = \(deltaPitch)°"
-        let deltaShow = "Rotation: \(deltaPitch)°"
+        // Calculate delta rotations
+        let deltaRoll = axes.roll - neutralRoll
+        let deltaYaw = axes.yaw - neutralYaw
+        let deltaPitch = axes.pitch - neutralPitch
         
-        currentRotation = "\n- Roll: \(axes.roll)°\n- Pitch: \(axes.pitch)°\n- Yaw: \(axes.yaw)°\n\n\(deltaShow)"
+        // Format rotation data for display
+        let formattedRoll = String(format: "%.2f", axes.roll)
+        let formattedPitch = String(format: "%.2f", axes.pitch)
+        let formattedYaw = String(format: "%.2f", axes.yaw)
+        
+        // Choose which axis to use for rotation (using deltaYaw for horizontal rotation)
+        let rotationValue = deltaYaw
+        let formattedDelta = String(format: "%.2f", rotationValue)
+        
+        // Update rotation information
+        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
         rotationUpdateHandler?(firstRotation, currentRotation)
         
-        let delta = self.normalizeAngle(deltaYaw)
-        let radians = delta * .pi / 180
+        // Apply normalized rotation - using horizontal (yaw) rotation
+        let normalizedDelta = normalizeAngle(rotationValue)
+        let radians = normalizedDelta * .pi / 180
         
         // Apply rotation transform to the UIImageView directly
         UIView.animate(withDuration: 0.1) {
             imageView.transform = CGAffineTransform(rotationAngle: radians)
-            
-            self.adjustImageViewSizeAfterRotation(imageView, in: self.containerView, angle: radians)
-        }
-    }
-    
-    func setupAutoStretchingImageView(_ imageView: UIImageView, in containerView: UIView) {
-        // Remove any existing constraints
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Add constraints to make the imageView fill the container
-        NSLayoutConstraint.activate([
-            imageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
-        ])
-        
-        // Set content mode to scale to fill
-        imageView.contentMode = .scaleAspectFill
-        imageView.clipsToBounds = true
-    }
-    
-    func adjustImageViewSizeAfterRotation(_ imageView: UIImageView, in containerView: UIView, angle: CGFloat) {
-        // Calculate the bounds of the rotated view to ensure it fills the container
-        let containerBounds = containerView.bounds
-        
-        // If needed, adjust the frame to ensure the rotated image fills the container
-        // This is only necessary for more complex cases where the normal constraints don't work
-        
-        // For more advanced cases, you might need to adjust the content mode dynamically
-        if abs(angle).truncatingRemainder(dividingBy: .pi / 2) < 0.1 {
-            // Near 90/270 degrees - might need different aspect handling
-            imageView.contentMode = .scaleAspectFill
-        } else {
-            // Other angles
-            imageView.contentMode = .scaleAspectFill
         }
     }
 }
