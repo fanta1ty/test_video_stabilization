@@ -339,7 +339,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     func startGyroscopeUpdates() {
         // Create a timer that fetches gyroscope data every 100ms (10 times per second)
         gyroTimer = Timer.scheduledTimer(
-            timeInterval: 0.1,
+            timeInterval: 0.6,
             target: self,
             selector: #selector(playStream),
             userInfo: nil,
