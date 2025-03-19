@@ -4,6 +4,7 @@ import Vision
 import CoreImage
 import MobileVLCKit
 
+// MARK: - View Controller
 class ViewController: UIViewController {
     
     // MARK: - Stream Mode Enum
@@ -25,8 +26,17 @@ class ViewController: UIViewController {
         return view
     }()
     
-    // Container for VLC player
-    private lazy var vlcContainerView: UIView = {
+    // Container that will be rotated
+    private lazy var rotateContainerView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = .black
+        view.clipsToBounds = true
+        return view
+    }()
+    
+    // Actual VLC view inside the container
+    private lazy var vlcVideoView: UIView = {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
         view.backgroundColor = .black
@@ -96,7 +106,6 @@ class ViewController: UIViewController {
     private var mediaPlayer: VLCMediaPlayer?
     private var gyroscopeExtractor: GyroscopeExtractor!
     private var mjpegStreamView: MjpegStabilizeStreaming?
-    private var captureTimer: Timer?
     
     // MARK: - Lifecycle Methods
     override func viewDidLoad() {
@@ -119,9 +128,8 @@ class ViewController: UIViewController {
     private func setupUI() {
         view.backgroundColor = .white
         
-        // Add VLC container and imageView (both will cover the same area)
-        view.addSubview(vlcContainerView)
-        view.addSubview(imageView)
+        // Setup the rotation container and VLC view
+        setupVideoContainers()
         
         view.addSubview(rotationLabel)
         view.addSubview(stabilizationLabel)
@@ -134,22 +142,42 @@ class ViewController: UIViewController {
         setupConstraints()
     }
     
+    private func setupVideoContainers() {
+        // Add rotation container to main view
+        view.addSubview(rotateContainerView)
+        
+        // Add VLC video view inside rotation container
+        rotateContainerView.addSubview(vlcVideoView)
+        
+        // Also add imageView to main view (for MJPEG mode)
+        view.addSubview(imageView)
+        
+        // Initially hide imageView since we're using VLC by default
+        imageView.isHidden = true
+    }
+    
     private func setupConstraints() {
         NSLayoutConstraint.activate([
-            // VLC container constraints
-            vlcContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
-            vlcContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
-            vlcContainerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30),
-            vlcContainerView.heightAnchor.constraint(equalToConstant: 300),
+            // Rotation container constraints
+            rotateContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
+            rotateContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
+            rotateContainerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30),
+            rotateContainerView.heightAnchor.constraint(equalToConstant: 300),
             
-            // ImageView constraints (same position as VLC container)
-            imageView.leadingAnchor.constraint(equalTo: vlcContainerView.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: vlcContainerView.trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: vlcContainerView.topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: vlcContainerView.bottomAnchor),
+            // VLC video view constraints (fills the rotation container)
+            vlcVideoView.leadingAnchor.constraint(equalTo: rotateContainerView.leadingAnchor),
+            vlcVideoView.trailingAnchor.constraint(equalTo: rotateContainerView.trailingAnchor),
+            vlcVideoView.topAnchor.constraint(equalTo: rotateContainerView.topAnchor),
+            vlcVideoView.bottomAnchor.constraint(equalTo: rotateContainerView.bottomAnchor),
+            
+            // ImageView constraints (same position as rotation container)
+            imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
+            imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
+            imageView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30),
+            imageView.heightAnchor.constraint(equalToConstant: 300),
             
             // Rotation label and switch constraints
-            rotationLabel.topAnchor.constraint(equalTo: vlcContainerView.bottomAnchor, constant: 150),
+            rotationLabel.topAnchor.constraint(equalTo: rotateContainerView.bottomAnchor, constant: 150),
             rotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             rotationSwitch.centerYAnchor.constraint(equalTo: rotationLabel.centerYAnchor),
             rotationSwitch.leadingAnchor.constraint(equalTo: rotationLabel.trailingAnchor, constant: 10),
@@ -188,14 +216,14 @@ class ViewController: UIViewController {
             stabilizationSwitch.isHidden = false
             stabilizationLabel.isHidden = false
             
-            // Initially hide the imageView - will be shown when rotation is needed
+            // Show VLC container, hide imageView
+            rotateContainerView.isHidden = false
             imageView.isHidden = true
-            vlcContainerView.isHidden = false
         case .mjpeg:
             setupMJPEGStream()
             
             // Hide VLC container when using MJPEG
-            vlcContainerView.isHidden = true
+            rotateContainerView.isHidden = true
             imageView.isHidden = false
         }
     }
@@ -205,11 +233,10 @@ class ViewController: UIViewController {
         let player = VLCMediaPlayer()
         self.mediaPlayer = player
         
-        // Set the vlcContainerView as the drawable for VLC
-        player.drawable = vlcContainerView
+        // Set the vlcVideoView as the drawable for VLC
+        player.drawable = vlcVideoView
         
         // Configure media
-        
         let media = VLCMedia(url: StreamConfig.vlcStreamURL)
         
         // Configure media options for low latency
@@ -224,26 +251,6 @@ class ViewController: UIViewController {
         
         // Start playback
         player.play()
-        
-        // Set up a timer to periodically capture frames for rotation
-        startCaptureTimer()
-    }
-    
-    private func startCaptureTimer() {
-        // Cancel any existing timer
-        captureTimer?.invalidate()
-        
-        // Create a timer for frame capture (only runs when rotation is enabled)
-        captureTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            
-            // Only capture frames when rotation is enabled and auto rotation is active
-            if self.rotationSwitch.isOn &&
-               self.gyroscopeExtractor.startAutoRotation &&
-               self.imageView.isHidden {
-                self.captureVLCFrameAndSwitchToImageView()
-            }
-        }
     }
     
     private func setupVLCNotifications() {
@@ -270,13 +277,31 @@ class ViewController: UIViewController {
     }
     
     private func setupGyroscopeExtractor() {
-        gyroscopeExtractor = GyroscopeExtractor(imageView: imageView, containerView: view)
+        // For the container rotation approach, we'll create a dummy imageView
+        // just for the gyroscope extractor to use
+        let dummyImageView = UIImageView(frame: .zero)
+        
+        gyroscopeExtractor = GyroscopeExtractor(imageView: dummyImageView, containerView: view)
         gyroscopeExtractor.contentURL = StreamConfig.gyroscopeURL
         gyroscopeExtractor.rotationUpdateHandler = { [weak self] firstRotation, currentRotation in
             DispatchQueue.main.async {
-                self?.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
+                guard let self = self else { return }
+                self.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
             }
         }
+        
+        // Add a custom handler for gyroscope data that applies to the rotation container
+        gyroscopeExtractor.rotationAngleHandler = { [weak self] angle in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                
+                // Apply rotation to container view if rotation is enabled
+                if self.rotationSwitch.isOn && self.gyroscopeExtractor.startAutoRotation {
+                    self.applyRotationToContainer(angle: angle)
+                }
+            }
+        }
+        
         gyroscopeExtractor.playStream()
         gyroscopeExtractor.startGyroscopeUpdates()
     }
@@ -297,54 +322,16 @@ class ViewController: UIViewController {
         mediaPlayer?.stop()
         mediaPlayer = nil
         
-        // Stop capture timer
-        captureTimer?.invalidate()
-        captureTimer = nil
-        
         // Remove notification observers
         NotificationCenter.default.removeObserver(self, name: NSNotification.Name(rawValue: "VLCMediaPlayerStateChanged"), object: nil)
     }
     
-    // MARK: - Frame Capture and View Switching
+    // MARK: - Rotation Handling
     
-    private func captureVLCFrameAndSwitchToImageView() {
-        guard let player = mediaPlayer, player.isPlaying else { return }
-        
-        // Capture the current frame from VLC
-        if let capturedImage = captureVLCFrame() {
-            // Set the captured image to the imageView
-            imageView.image = capturedImage
-            
-            // Show imageView and hide VLC
-            imageView.isHidden = false
-            vlcContainerView.isHidden = true
-            
-            // Update the gyroscope extractor with the new image
-            gyroscopeExtractor.streamDidUpdateImage(capturedImage)
-        }
-    }
-    
-    private func captureVLCFrame() -> UIImage? {
-        // Use a graphics context to capture the VLC container view
-        UIGraphicsBeginImageContextWithOptions(vlcContainerView.bounds.size, false, UIScreen.main.scale)
-        defer { UIGraphicsEndImageContext() }
-        
-        if let context = UIGraphicsGetCurrentContext() {
-            vlcContainerView.layer.render(in: context)
-            return UIGraphicsGetImageFromCurrentImageContext()
-        }
-        
-        return nil
-    }
-    
-    private func switchToVLCView() {
-        // Show VLC view and hide imageView
-        vlcContainerView.isHidden = false
-        imageView.isHidden = true
-        
-        // Resume VLC playback if it was paused
-        if let player = mediaPlayer, !player.isPlaying {
-            player.play()
+    private func applyRotationToContainer(angle: CGFloat) {
+        // Apply rotation to the container view
+        UIView.animate(withDuration: 0.1) {
+            self.rotateContainerView.transform = CGAffineTransform(rotationAngle: angle * CGFloat.pi / 180)
         }
     }
     
@@ -366,12 +353,11 @@ class ViewController: UIViewController {
     @objc private func toggleRotation(_ sender: UISwitch) {
         gyroscopeExtractor.enableRotation = sender.isOn
         
-        // Toggle between VLC and imageView based on rotation state
-        if sender.isOn && gyroscopeExtractor.startAutoRotation {
-            // Next timer tick will switch to imageView
-        } else {
-            // Switch back to VLC view immediately
-            switchToVLCView()
+        // Reset container rotation if disabled
+        if !sender.isOn {
+            UIView.animate(withDuration: 0.3) {
+                self.rotateContainerView.transform = .identity
+            }
         }
     }
     
@@ -393,12 +379,11 @@ class ViewController: UIViewController {
         : "Stop Auto Rotation & Auto Stabilization"
         startRotateButton.setTitle(buttonTitle, for: .normal)
         
-        // If auto rotation was turned off, switch back to VLC
+        // Reset rotation when auto rotation is turned off
         if isActive {
-            switchToVLCView()
-        } else {
-            // If auto rotation was turned on, wait for the next timer tick
-            // to switch to imageView
+            UIView.animate(withDuration: 0.3) {
+                self.rotateContainerView.transform = .identity
+            }
         }
     }
     
@@ -444,5 +429,85 @@ class ViewController: UIViewController {
     private func updateRotationLabels(firstRotation: String?, currentRotation: String?) {
         firstRotationLabel.text = firstRotation
         rotationValueLabel.text = "Data Received: \(currentRotation ?? "N/A")"
+    }
+}
+
+
+
+// Key for the associated object
+private var rotationAngleHandlerKey: UInt8 = 0
+
+// MARK: - Extension to GyroscopeExtractor
+extension GyroscopeExtractor {
+    // Add a rotation angle handler for direct angle updates
+    var rotationAngleHandler: ((CGFloat) -> Void)? {
+        get {
+            objc_getAssociatedObject(self, UnsafeRawPointer(&rotationAngleHandlerKey)) as? (CGFloat) -> Void
+        }
+        set {
+            objc_setAssociatedObject(self, UnsafeRawPointer(&rotationAngleHandlerKey), newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+    }
+    
+    // Override to call our new handler with the angle
+    func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
+        guard let neutralPitch = self.neutralPitch,
+              let neutralYaw = self.neutralYaw,
+              let neutralRoll = self.neutralRoll else { return }
+        
+        // Calculate delta rotations
+        let deltaRoll = axes.roll - neutralRoll
+        let deltaYaw = axes.yaw - neutralYaw
+        let deltaPitch = axes.pitch - neutralPitch
+        
+        // Format rotation data for display
+        let formattedRoll = String(format: "%.2f", axes.roll)
+        let formattedPitch = String(format: "%.2f", axes.pitch)
+        let formattedYaw = String(format: "%.2f", axes.yaw)
+        
+        // Choose which axis to use for rotation (deltaYaw for horizontal rotation)
+        let rotationValue = deltaYaw
+        let formattedDelta = String(format: "%.2f", rotationValue)
+        
+        // Update rotation information
+        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
+        rotationUpdateHandler?(firstRotation, currentRotation)
+        
+        // Apply normalized rotation - using horizontal (yaw) rotation
+        let normalizedDelta = normalizeAngle(rotationValue)
+        
+        // Call the rotation angle handler with the normalized angle
+        rotationAngleHandler?(normalizedDelta)
+        
+        // Original behavior for non-container approach
+        let radians = normalizedDelta * .pi / 180
+        UIView.animate(withDuration: 0.1) {
+            imageView.transform = CGAffineTransform(rotationAngle: radians)
+        }
+    }
+    
+    func normalizeAngle(_ angle: CGFloat) -> CGFloat {
+        // Normalize angle for smoother rotation
+        var normalized = angle.truncatingRemainder(dividingBy: 360)
+        if normalized > 180 {
+            normalized -= 360
+        } else if normalized < -180 {
+            normalized += 360
+        }
+        
+        // Apply dead zone for small angles to prevent jitter
+        if abs(normalized) < 2.0 {
+            return 0
+        }
+        
+        // Snap to cardinal angles if close
+        let snapAngles: [CGFloat] = [0, 90, 180, -90, -180]
+        for snapAngle in snapAngles {
+            if abs(normalized - snapAngle) < 5.0 {
+                return snapAngle
+            }
+        }
+        
+        return normalized
     }
 }

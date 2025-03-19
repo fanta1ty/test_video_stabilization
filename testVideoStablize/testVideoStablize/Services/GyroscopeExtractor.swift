@@ -30,8 +30,8 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     var neutralRoll: CGFloat?
     var neutralPitch: CGFloat?
     var neutralYaw: CGFloat?
-    private var firstRotation: String?
-    private var currentRotation: String?
+    var firstRotation: String?
+    var currentRotation: String?
     private var isProcessingFrames = false
     
     private let imageStabilizer = ImageStabilizer()
@@ -311,30 +311,30 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         }
     }
 
-    private func normalizeAngle(_ angle: CGFloat) -> CGFloat {
-        // Normalize angle for smoother rotation
-        var normalized = angle.truncatingRemainder(dividingBy: 360)
-        if normalized > 180 {
-            normalized -= 360
-        } else if normalized < -180 {
-            normalized += 360
-        }
-        
-        // Apply dead zone for small angles to prevent jitter
-        if abs(normalized) < 2.0 {
-            return 0
-        }
-        
-        // Snap to cardinal angles if close
-        let snapAngles: [CGFloat] = [0, 90, 180, -90, -180]
-        for snapAngle in snapAngles {
-            if abs(normalized - snapAngle) < 5.0 {
-                return snapAngle
-            }
-        }
-        
-        return normalized
-    }
+//    private func normalizeAngle(_ angle: CGFloat) -> CGFloat {
+//        // Normalize angle for smoother rotation
+//        var normalized = angle.truncatingRemainder(dividingBy: 360)
+//        if normalized > 180 {
+//            normalized -= 360
+//        } else if normalized < -180 {
+//            normalized += 360
+//        }
+//        
+//        // Apply dead zone for small angles to prevent jitter
+//        if abs(normalized) < 2.0 {
+//            return 0
+//        }
+//        
+//        // Snap to cardinal angles if close
+//        let snapAngles: [CGFloat] = [0, 90, 180, -90, -180]
+//        for snapAngle in snapAngles {
+//            if abs(normalized - snapAngle) < 5.0 {
+//                return snapAngle
+//            }
+//        }
+//        
+//        return normalized
+//    }
     
     func startGyroscopeUpdates() {
         // Create a timer that fetches gyroscope data every 100ms (10 times per second)
@@ -352,36 +352,37 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         gyroTimer = nil
     }
     
-    func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
-        guard let neutralPitch = self.neutralPitch,
-              let neutralYaw = self.neutralYaw,
-              let neutralRoll = self.neutralRoll else { return }
-        
-        // Calculate delta rotations
-        let deltaRoll = axes.roll - neutralRoll
-        let deltaYaw = axes.yaw - neutralYaw
-        let deltaPitch = axes.pitch - neutralPitch
-        
-        // Format rotation data for display
-        let formattedRoll = String(format: "%.2f", axes.roll)
-        let formattedPitch = String(format: "%.2f", axes.pitch)
-        let formattedYaw = String(format: "%.2f", axes.yaw)
-        
-        // Choose which axis to use for rotation (using deltaYaw for horizontal rotation)
-        let rotationValue = deltaYaw
-        let formattedDelta = String(format: "%.2f", rotationValue)
-        
-        // Update rotation information
-        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
-        rotationUpdateHandler?(firstRotation, currentRotation)
-        
-        // Apply normalized rotation - using horizontal (yaw) rotation
-        let normalizedDelta = normalizeAngle(rotationValue)
-        let radians = normalizedDelta * .pi / 180
-        
-        // Apply rotation transform to the UIImageView directly
-        UIView.animate(withDuration: 0.1) {
-            imageView.transform = CGAffineTransform(rotationAngle: radians)
-        }
-    }
+//    func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
+//        guard let neutralPitch = self.neutralPitch,
+//              let neutralYaw = self.neutralYaw,
+//              let neutralRoll = self.neutralRoll else { return }
+//        
+//        // Calculate delta rotations
+//        let deltaRoll = axes.roll - neutralRoll
+//        let deltaYaw = axes.yaw - neutralYaw
+//        let deltaPitch = axes.pitch - neutralPitch
+//        
+//        // Format rotation data for display
+//        let formattedRoll = String(format: "%.2f", axes.roll)
+//        let formattedPitch = String(format: "%.2f", axes.pitch)
+//        let formattedYaw = String(format: "%.2f", axes.yaw)
+//        
+//        // Choose which axis to use for rotation (using deltaYaw for horizontal rotation)
+//        let rotationValue = deltaYaw
+//        let formattedDelta = String(format: "%.2f", rotationValue)
+//        
+//        // Update rotation information
+//        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
+//        rotationUpdateHandler?(firstRotation, currentRotation)
+//        
+//        // Apply normalized rotation - using horizontal (yaw) rotation
+//        let normalizedDelta = normalizeAngle(rotationValue)
+//        let radians = normalizedDelta * .pi / 180
+//        
+//        // Apply rotation transform to the UIImageView directly
+//        UIView.animate(withDuration: 0.1) {
+//            imageView.transform = CGAffineTransform(rotationAngle: radians)
+//        }
+//    }
 }
+
