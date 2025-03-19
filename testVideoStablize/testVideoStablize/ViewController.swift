@@ -16,6 +16,11 @@ class ViewController: UIViewController {
     // Current streaming mode
     private let currentStreamMode: StreamMode = .vlcPlayer
     
+    // MARK: - Rotation Smoothing Properties
+    private var lastAppliedRotation: CGFloat = 0
+    private var lastRotationUpdateTime: TimeInterval = 0
+    private let rotationDebounceTime: TimeInterval = 0.05 // 50ms debounce
+    
     // MARK: - UI Components
     // Container view to handle clipping
     private lazy var containerView: UIView = {
@@ -255,23 +260,50 @@ class ViewController: UIViewController {
         // Apply rotation based on the current gyroscope data
         if let currentRotation = gyroscopeExtractor.currentRotation {
             // Extract the rotation angle from the gyroscope data
-            let rotationAngle = extractRotationAngle(from: currentRotation)
+            let rawRotationAngle = extractRotationAngle(from: currentRotation)
+            
+            // Apply smoothing to reduce twitching
+            let smoothedRotationAngle = smoothRotationAngle(rawRotationAngle)
+            
+            // Debounce small changes to prevent twitching
+            let currentTime = Date().timeIntervalSince1970
+            if abs(smoothedRotationAngle - lastAppliedRotation) < 0.5 &&
+               (currentTime - lastRotationUpdateTime) < rotationDebounceTime {
+                // Skip this update - too small and too soon after the last one
+                return
+            }
+            
+            // Update last applied values
+            lastAppliedRotation = smoothedRotationAngle
+            lastRotationUpdateTime = currentTime
             
             // Convert angle to radians
-            let radians = rotationAngle * CGFloat.pi / 180
+            let radians = smoothedRotationAngle * CGFloat.pi / 180
             
             // Calculate the scale factor needed to fill the parent after rotation
             let scale = calculateScaleToFillAfterRotation(angle: radians)
             
             // Apply both rotation and scaling to ensure corners reach parent boundaries
-            UIView.animate(withDuration: 0.1) {
+            UIView.animate(withDuration: 0.2, // Slightly longer animation for smoother feel
+                           delay: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut],
+                           animations: {
                 // Combine rotation and scaling transformations
                 let rotationTransform = CGAffineTransform(rotationAngle: radians)
                 let scaledTransform = rotationTransform.scaledBy(x: scale, y: scale)
                 
                 self.imageView.transform = scaledTransform
-            }
+            })
         }
+    }
+    
+    // Add this method to smooth out rotation angles
+    private func smoothRotationAngle(_ angle: CGFloat) -> CGFloat {
+        // Apply a weighted moving average with the last applied rotation
+        let weightForNew = 0.3 // Adjust this value (0-1) for more or less smoothing
+        let weightForLast = 1.0 - weightForNew
+        
+        return (angle * weightForNew) + (lastAppliedRotation * weightForLast)
     }
     
     private func extractRotationAngle(from rotationString: String) -> CGFloat {
