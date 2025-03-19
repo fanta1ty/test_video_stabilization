@@ -40,7 +40,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     
     // MARK: - Public Properties
     open var authenticationHandler: ((URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?))?
-    open var rotationUpdateHandler: ((_ firstRotation: String?, _ currentRotation: String?, _ axes: ThreeDimension?) -> Void)?
+    open var rotationUpdateHandler: ((_ firstRotation: String?, _ currentRotation: String?) -> Void)?
     open var didStartLoading: (() -> Void)?
     open var didFinishLoading: (() -> Void)?
     open var onError: ((Error?) -> Void)?
@@ -230,7 +230,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         let deltaShow = "Rotation: \(deltaPitch)°"
         
         currentRotation = "\n- Roll: \(axes.roll)°\n- Pitch: \(axes.pitch)°\n- Yaw: \(axes.yaw)°\n\n\(deltaShow)"
-        rotationUpdateHandler?(firstRotation, currentRotation, axes)
+        rotationUpdateHandler?(firstRotation, currentRotation)
         
         let delta = self.normalizeAngle(deltaPitch)
         let radians = delta * .pi / 180
@@ -294,7 +294,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         let deltaShow = "Rotation: \(deltaPitch)°"
         
         currentRotation = "\n- Roll: \(axes.roll)°\n- Pitch: \(axes.pitch)°\n- Yaw: \(axes.yaw)°\n\n\(deltaShow)"
-        rotationUpdateHandler?(firstRotation, currentRotation, axes)
+        rotationUpdateHandler?(firstRotation, currentRotation)
         
         let delta = self.normalizeAngle(deltaYaw)
         let radians = delta * .pi / 180
