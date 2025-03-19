@@ -41,6 +41,10 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     // Original image reference for rotation
     private var originalImage: UIImage?
     
+    // Calibration values
+    private var zeroDegreesYaw: CGFloat = -165.0
+    private var ninetyDegreesYaw: CGFloat = -46.0
+    
     // MARK: - Public Properties
     open var authenticationHandler: ((URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?))?
     open var rotationUpdateHandler: ((_ firstRotation: String?, _ currentRotation: String?) -> Void)?
@@ -69,6 +73,14 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        
+        // Load calibration values if previously saved
+        if let zeroYaw = UserDefaults.standard.value(forKey: "calibration_zero_yaw") as? Float {
+            zeroDegreesYaw = CGFloat(zeroYaw)
+        }
+        if let ninetyYaw = UserDefaults.standard.value(forKey: "calibration_ninety_yaw") as? Float {
+            ninetyDegreesYaw = CGFloat(ninetyYaw)
+        }
     }
     
     deinit {
@@ -339,7 +351,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     func startGyroscopeUpdates() {
         // Create a timer that fetches gyroscope data every 100ms (10 times per second)
         gyroTimer = Timer.scheduledTimer(
-            timeInterval: 0.6,
+            timeInterval: 0.1,
             target: self,
             selector: #selector(playStream),
             userInfo: nil,
@@ -352,30 +364,46 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         gyroTimer = nil
     }
     
+    // New method to map sensor values to physical degrees
+    func mapSensorToDegrees(roll: CGFloat, pitch: CGFloat, yaw: CGFloat) -> CGFloat {
+        // Using yaw as it has the largest difference between 0° and 90°
+        let yawRange = abs(ninetyDegreesYaw - zeroDegreesYaw) // Should be around 119
+        let physicalRange: CGFloat = 90 // 0° to 90°
+        
+        // Calculate scale factor
+        let scaleFactor = physicalRange / yawRange
+        
+        // Linear mapping from sensor yaw to physical degrees
+        let normalizedYaw = (yaw - zeroDegreesYaw) * scaleFactor
+        
+        return normalizedYaw
+    }
+    
+    // Updated rotation method using mapping
     func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
         guard let neutralPitch = self.neutralPitch,
               let neutralYaw = self.neutralYaw,
               let neutralRoll = self.neutralRoll else { return }
-        
-        // Calculate delta rotations
-        let deltaRoll = axes.roll - neutralRoll
-        let deltaYaw = axes.yaw - neutralYaw
-        let deltaPitch = axes.pitch - neutralPitch
         
         // Format rotation data for display
         let formattedRoll = String(format: "%.2f", axes.roll)
         let formattedPitch = String(format: "%.2f", axes.pitch)
         let formattedYaw = String(format: "%.2f", axes.yaw)
         
-        // Choose which axis to use for rotation (using deltaYaw for horizontal rotation)
-        let rotationValue = deltaYaw
+        // Map sensor values to physical degrees
+        let physicalDegrees = mapSensorToDegrees(roll: axes.roll, pitch: axes.pitch, yaw: axes.yaw)
+        
+        // Calculate physical rotation by subtracting the neutral position
+        let neutralDegrees = mapSensorToDegrees(roll: neutralRoll, pitch: neutralPitch, yaw: neutralYaw)
+        let rotationValue = physicalDegrees - neutralDegrees
+        
         let formattedDelta = String(format: "%.2f", rotationValue)
         
         // Update rotation information
         currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
         rotationUpdateHandler?(firstRotation, currentRotation)
         
-        // Apply normalized rotation - using horizontal (yaw) rotation
+        // Apply normalized rotation
         let normalizedDelta = normalizeAngle(rotationValue)
         let radians = normalizedDelta * .pi / 180
         
@@ -384,5 +412,21 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
             imageView.transform = CGAffineTransform(rotationAngle: radians)
         }
     }
+    
+    // Calibration method for easy adjustment
+    func calibrateWithMeasurements(
+        zeroDegreesValues: (roll: CGFloat, pitch: CGFloat, yaw: CGFloat),
+        ninetyDegreesValues: (roll: CGFloat, pitch: CGFloat, yaw: CGFloat)
+    ) {
+        // Store calibration values for the mapping function
+        zeroDegreesYaw = zeroDegreesValues.yaw
+        ninetyDegreesYaw = ninetyDegreesValues.yaw
+        
+        // Save to UserDefaults for persistence
+        UserDefaults.standard.set(Float(zeroDegreesValues.yaw), forKey: "calibration_zero_yaw")
+        UserDefaults.standard.set(Float(ninetyDegreesValues.yaw), forKey: "calibration_ninety_yaw")
+        
+        // Optionally, reset neutral values to force recalibration
+        resetCalibration()
+    }
 }
-
