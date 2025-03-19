@@ -4,12 +4,7 @@ import AVKit
 import Vision
 import CoreImage
 
-struct MJPEGFrame {
-    let image: UIImage
-    let rotation: Int
-}
-
-class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
+class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     
     // MARK: - Enums
     fileprivate enum Status {
@@ -32,14 +27,19 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     private var dataTask: URLSessionDataTask?
     private var session: URLSession!
     
-    private var neutralRoll: CGFloat?
-    private var neutralPitch: CGFloat?
-    private var neutralYaw: CGFloat?
-    private var firstRotation: String?
-    private var currentRotation: String?
+    var neutralRoll: CGFloat?
+    var neutralPitch: CGFloat?
+    var neutralYaw: CGFloat?
+    var firstRotation: String?
+    var currentRotation: String?
     private var isProcessingFrames = false
     
     private let imageStabilizer = ImageStabilizer()
+    
+    private var gyroTimer: Timer?
+    
+    // Original image reference for rotation
+    private var originalImage: UIImage?
     
     // MARK: - Public Properties
     open var authenticationHandler: ((URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?))?
@@ -51,11 +51,20 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     open var imageView: UIImageView
     open var enableRotation: Bool = true
     open var enableStabilization: Bool = false
-    open var startAutoRotation: Bool = false
+    open var startAutoRotation: Bool = false {
+        didSet {
+            // Reset neutral values when auto rotation is toggled
+            if startAutoRotation && !oldValue {
+                resetCalibration()
+            }
+        }
+    }
+    let containerView: UIView
 
     // MARK: - Initializer
-    public init(imageView: UIImageView) {
+    public init(imageView: UIImageView, containerView: UIView) {
         self.imageView = imageView
+        self.containerView = containerView
         super.init()
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
@@ -72,10 +81,10 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
             stop()
         }
         contentURL = url
-        play()
+        playStream()
     }
 
-    open func play() {
+    @objc func playStream() {
         guard let url = contentURL, status == .stopped else { return }
         status = .loading
         DispatchQueue.main.async { self.didStartLoading?() }
@@ -90,6 +99,43 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         status = .stopped
         dataTask?.cancel()
     }
+    
+    /// Reset calibration values
+    open func resetCalibration() {
+        neutralRoll = nil
+        neutralPitch = nil
+        neutralYaw = nil
+        firstRotation = nil
+        
+        // Reset rotation on the image view
+        DispatchQueue.main.async { [weak self] in
+            self?.imageView.transform = .identity
+        }
+    }
+    
+    /// Update the original image for rotation
+    open func streamDidUpdateImage(_ image: UIImage) {
+        originalImage = image
+        
+        // If we have a new image and rotation is active, apply the rotation
+        if enableRotation && startAutoRotation,
+           let roll = neutralRoll,
+           let pitch = neutralPitch,
+           let yaw = neutralYaw {
+            
+            // Create a fake ThreeDimension with the current neutral values
+            // This will trigger a refresh of the rotation based on current angles
+            let currentAxes = ThreeDimension(
+                pitch: pitch,
+                roll: roll,
+                yaw: yaw
+            )
+            
+            DispatchQueue.main.async { [weak self] in
+                self?.applyRotationToImageView(self!.imageView, axes: currentAxes)
+            }
+        }
+    }
 
     // MARK: - URLSessionDataDelegate
     open func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
@@ -101,8 +147,25 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     }
 
     open func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        receivedData.append(data)
-        processReceivedData()
+        guard let threeDimensionAxes = parse3DAxes(from: data) else { return }
+        
+        setNeutralValues(
+            roll: threeDimensionAxes.roll,
+            pitch: threeDimensionAxes.pitch,
+            yaw: threeDimensionAxes.yaw
+        )
+        
+        _Concurrency.Task {
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                // Apply rotation if enabled
+                if self.enableRotation && self.startAutoRotation {
+                    self.applyRotationToImageView(self.imageView, axes: threeDimensionAxes)
+                }
+            }
+        }
+        
+        status = .stopped
     }
 
     open func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -145,17 +208,19 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
 
     private func processFrame(image: UIImage, axes: ThreeDimension) {
         processingQueue.async {
-            let rotatedImage = self.applyRotation(image: image, axes: axes)
-
-            if self.enableStabilization {
-                self.stabilizeFrame(rotatedImage ?? image)
-            } else if self.enableRotation {
+            // Store original image for future reference
+            self.originalImage = image
+            
+            if self.enableRotation && self.startAutoRotation {
+                // Apply rotation through direct transform
                 DispatchQueue.main.async {
-                    self.imageView.image = rotatedImage ?? image
+                    self.applyRotationToImageView(self.imageView, axes: axes)
                 }
+            } else if self.enableStabilization {
+                self.stabilizeFrame(image)
             } else {
                 DispatchQueue.main.async {
-                    self.imageView.image =  image
+                    self.imageView.image = image
                 }
             }
         }
@@ -186,10 +251,10 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         guard let jsonString = String(data: jsonData, encoding: .utf8),
               let data = jsonString.data(using: .utf8),
               let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
-              let dict = jsonObject as? [String: String],
-              let roll = Double(dict["r"] ?? ""),
-              let pitch = Double(dict["p"] ?? ""),
-              let yaw = Double(dict["y"] ?? "") else { return nil }
+              let dict = jsonObject as? [String: Double],
+              let roll = dict["r"],
+              let pitch = dict["p"],
+              let yaw = dict["y"] else { return nil }
         return ThreeDimension(pitch: CGFloat(pitch), roll: CGFloat(roll), yaw: CGFloat(yaw))
     }
 
@@ -198,7 +263,12 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         neutralRoll = roll
         neutralPitch = pitch
         neutralYaw = yaw
-        // firstRotation = "\n- Roll: \(roll)°\n- Pitch: \(pitch)°\n- Yaw: \(yaw)°"
+        
+        let formattedRoll = String(format: "%.2f", roll)
+        let formattedPitch = String(format: "%.2f", pitch)
+        let formattedYaw = String(format: "%.2f", yaw)
+        
+        firstRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°"
     }
 
     private func applyRotation(image: UIImage, axes: ThreeDimension) -> UIImage? {
@@ -207,12 +277,12 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
         let deltaYaw = axes.yaw - self.neutralYaw!
         let deltaPitch = axes.pitch - self.neutralPitch!
         
-        let deltaRollLog = "Delta roll: \(axes.roll) - (\(self.neutralRoll ?? 0)) = \(deltaRoll)°"
-        let deltaYawLog = "Delta yaw: \(axes.yaw) - (\(self.neutralYaw ?? 0)) = \(deltaYaw) °"
-        let deltaPitchLog = "Delta pitch: \(axes.pitch) - (\(self.neutralPitch ?? 0)) = \(deltaPitch)°"
-        let deltaShow = "Rotation: \(deltaPitch)°"
+        let formattedRoll = String(format: "%.2f", axes.roll)
+        let formattedPitch = String(format: "%.2f", axes.pitch)
+        let formattedYaw = String(format: "%.2f", axes.yaw)
+        let formattedDelta = String(format: "%.2f", deltaPitch)
         
-        currentRotation = "\n- Roll: \(axes.roll)°\n- Pitch: \(axes.pitch)°\n- Yaw: \(axes.yaw)°\n\n\(deltaShow)"
+        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
         rotationUpdateHandler?(firstRotation, currentRotation)
         
         let delta = self.normalizeAngle(deltaPitch)
@@ -242,10 +312,76 @@ class MjpegStabilizeStreaming: NSObject, URLSessionDataDelegate {
     }
 
     private func normalizeAngle(_ angle: CGFloat) -> CGFloat {
-        switch abs(angle) {
-        case 0...10: return 0
-        case 90...110: return 90
-        default: return angle
+        // Normalize angle for smoother rotation
+        var normalized = angle.truncatingRemainder(dividingBy: 360)
+        if normalized > 180 {
+            normalized -= 360
+        } else if normalized < -180 {
+            normalized += 360
+        }
+        
+        // Apply dead zone for small angles to prevent jitter
+        if abs(normalized) < 2.0 {
+            return 0
+        }
+        
+        // Snap to cardinal angles if close
+        let snapAngles: [CGFloat] = [0, 90, 180, -90, -180]
+        for snapAngle in snapAngles {
+            if abs(normalized - snapAngle) < 5.0 {
+                return snapAngle
+            }
+        }
+        
+        return normalized
+    }
+    
+    func startGyroscopeUpdates() {
+        // Create a timer that fetches gyroscope data every 100ms (10 times per second)
+        gyroTimer = Timer.scheduledTimer(
+            timeInterval: 0.6,
+            target: self,
+            selector: #selector(playStream),
+            userInfo: nil,
+            repeats: true
+        )
+    }
+    
+    func stopGyroscopeUpdates() {
+        gyroTimer?.invalidate()
+        gyroTimer = nil
+    }
+    
+    func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
+        guard let neutralPitch = self.neutralPitch,
+              let neutralYaw = self.neutralYaw,
+              let neutralRoll = self.neutralRoll else { return }
+        
+        // Calculate delta rotations
+        let deltaRoll = axes.roll - neutralRoll
+        let deltaYaw = axes.yaw - neutralYaw
+        let deltaPitch = axes.pitch - neutralPitch
+        
+        // Format rotation data for display
+        let formattedRoll = String(format: "%.2f", axes.roll)
+        let formattedPitch = String(format: "%.2f", axes.pitch)
+        let formattedYaw = String(format: "%.2f", axes.yaw)
+        
+        // Choose which axis to use for rotation (using deltaYaw for horizontal rotation)
+        let rotationValue = deltaYaw
+        let formattedDelta = String(format: "%.2f", rotationValue)
+        
+        // Update rotation information
+        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
+        rotationUpdateHandler?(firstRotation, currentRotation)
+        
+        // Apply normalized rotation - using horizontal (yaw) rotation
+        let normalizedDelta = normalizeAngle(rotationValue)
+        let radians = normalizedDelta * .pi / 180
+        
+        // Apply rotation transform to the UIImageView directly
+        UIView.animate(withDuration: 0.1) {
+            imageView.transform = CGAffineTransform(rotationAngle: radians)
         }
     }
 }
