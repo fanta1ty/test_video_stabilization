@@ -152,7 +152,7 @@ class ViewController: UIViewController {
             imageView.heightAnchor.constraint(equalTo: containerView.heightAnchor),
             
             // Rotation label and switch constraints
-            rotationLabel.topAnchor.constraint(equalTo: containerView.bottomAnchor, constant: 150),
+            rotationLabel.topAnchor.constraint(equalTo: containerView.bottomAnchor, constant: 120),
             rotationLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             rotationSwitch.centerYAnchor.constraint(equalTo: rotationLabel.centerYAnchor),
             rotationSwitch.leadingAnchor.constraint(equalTo: rotationLabel.trailingAnchor, constant: 10),

@@ -13,23 +13,6 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         case playing
     }
     
-    // MARK: - Calibration Constants
-    private struct CalibrationPoint {
-        let physicalAngle: CGFloat
-        let roll: CGFloat
-        let pitch: CGFloat
-        let yaw: CGFloat
-    }
-    
-    // Calibration data based on your measurements
-    private let calibrationPoints: [CalibrationPoint] = [
-        CalibrationPoint(physicalAngle: 0, roll: -136.00, pitch: 18.00, yaw: -130.00),
-        CalibrationPoint(physicalAngle: 90, roll: -101.00, pitch: 42.00, yaw: -36.00),
-        CalibrationPoint(physicalAngle: 180, roll: -90.00, pitch: 3.00, yaw: -38.00),
-        CalibrationPoint(physicalAngle: -90, roll: -96.00, pitch: -35.00, yaw: -30.00),
-        CalibrationPoint(physicalAngle: -180, roll: -92.00, pitch: 3.00, yaw: -36.00)
-    ]
-    
     // MARK: - Properties
     private var receivedData = Data()
     private var status: Status = .stopped
@@ -58,13 +41,17 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     // Original image reference for rotation
     private var originalImage: UIImage?
     
-    // Indicate which sensor value to use for mapping to physical angle
-    private var primaryRotationAxis: RotationAxis = .yaw
-    
-    // MARK: - Enums
-    private enum RotationAxis {
-        case roll, pitch, yaw
-    }
+    // Calibration values
+    private var calibrationMap: [(angle: CGFloat, roll: CGFloat, pitch: CGFloat, yaw: CGFloat)] = [
+        (angle: 0.0, roll: -137.0, pitch: -18.0, yaw: -165.0),
+        (angle: 45.0, roll: -92.0, pitch: -45.0, yaw: 67.0),
+        (angle: 90.0, roll: -105.0, pitch: 41.0, yaw: -46.0),
+        (angle: 180, roll: -92.0, pitch: 3.0, yaw: -36.0),
+        (angle: 135.0, roll: -90.0, pitch: -17.0, yaw: 48.0),
+        (angle: -45.0, roll: -112.0, pitch: 55.0, yaw: 27.0),
+        (angle: -135.0, roll: -93.0, pitch: 28.0, yaw: 31.0),
+        (angle: -180, roll: -90.0, pitch: 3.0, yaw: -38.0),
+    ]
     
     // MARK: - Public Properties
     open var authenticationHandler: ((URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?))?
@@ -95,8 +82,14 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         
-        // Determine the best sensor axis to use for rotation mapping
-        determineBestRotationAxis()
+        // Load calibration values if previously saved
+        if let savedCalibrationData = UserDefaults.standard.data(forKey: "sensor_calibration_map") {
+            if let decodedCalibration = try? JSONDecoder().decode([CalibrationPoint].self, from: savedCalibrationData) {
+                calibrationMap = decodedCalibration.map { point in
+                    return (angle: point.angle, roll: point.roll, pitch: point.pitch, yaw: point.yaw)
+                }
+            }
+        }
     }
     
     deinit {
@@ -299,6 +292,46 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         firstRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°"
     }
 
+    private func applyRotation(image: UIImage, axes: ThreeDimension) -> UIImage? {
+        guard neutralPitch != nil, neutralYaw != nil else { return nil }
+        let deltaRoll = axes.roll - self.neutralRoll!
+        let deltaYaw = axes.yaw - self.neutralYaw!
+        let deltaPitch = axes.pitch - self.neutralPitch!
+        
+        let formattedRoll = String(format: "%.2f", axes.roll)
+        let formattedPitch = String(format: "%.2f", axes.pitch)
+        let formattedYaw = String(format: "%.2f", axes.yaw)
+        let formattedDelta = String(format: "%.2f", deltaPitch)
+        
+        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
+        rotationUpdateHandler?(firstRotation, currentRotation)
+        
+        let delta = self.normalizeAngle(deltaPitch)
+        let radians = delta * .pi / 180
+        
+        let originalSize = image.size
+        let rotatedSize = CGRect(origin: .zero, size: originalSize)
+            .applying(CGAffineTransform(rotationAngle: radians))
+            .integral
+            .size
+        let renderer = UIGraphicsImageRenderer(size: image.size)
+        return renderer.image { context in
+            let context = context.cgContext
+            context.setFillColor(UIColor.clear.cgColor)
+            context.fill(CGRect(origin: .zero, size: rotatedSize))
+            
+            context.translateBy(x: image.size.width / 2, y: image.size.height / 2)
+            context.rotate(by: radians)
+            
+            image.draw(in: CGRect(
+                x: -originalSize.width / 2,
+                y: -originalSize.height / 2,
+                width: originalSize.width,
+                height: originalSize.height
+            ))
+        }
+    }
+
     private func normalizeAngle(_ angle: CGFloat) -> CGFloat {
         // Normalize angle for smoother rotation
         var normalized = angle.truncatingRemainder(dividingBy: 360)
@@ -327,7 +360,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     func startGyroscopeUpdates() {
         // Create a timer that fetches gyroscope data every 100ms (10 times per second)
         gyroTimer = Timer.scheduledTimer(
-            timeInterval: 0.6,
+            timeInterval: 0.5,
             target: self,
             selector: #selector(playStream),
             userInfo: nil,
@@ -340,133 +373,80 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         gyroTimer = nil
     }
     
-    // MARK: - Rotation Mapping Methods
-    
-    // Determine which sensor axis (roll, pitch, or yaw) has the most consistent
-    // and useful changes for mapping to physical rotation
-    private func determineBestRotationAxis() {
-        // Calculate the range of values for each axis
-        let rollValues = calibrationPoints.map { $0.roll }
-        let pitchValues = calibrationPoints.map { $0.pitch }
-        let yawValues = calibrationPoints.map { $0.yaw }
-        
-        let rollRange = rollValues.max()! - rollValues.min()!
-        let pitchRange = pitchValues.max()! - pitchValues.min()!
-        let yawRange = yawValues.max()! - yawValues.min()!
-        
-        // Use the axis with the largest range of values
-        if yawRange >= rollRange && yawRange >= pitchRange {
-            primaryRotationAxis = .yaw
-        } else if pitchRange >= rollRange {
-            primaryRotationAxis = .pitch
-        } else {
-            primaryRotationAxis = .roll
-        }
+    // Codable struct for saving calibration
+    struct CalibrationPoint: Codable {
+        let angle: CGFloat
+        let roll: CGFloat
+        let pitch: CGFloat
+        let yaw: CGFloat
     }
     
-    // Map sensor readings to physical angles using the calibration points
-    func mapSensorToPhysicalAngle(axes: ThreeDimension) -> CGFloat {
-        // Get the sensor value for the chosen axis
-        let sensorValue: CGFloat
-        switch primaryRotationAxis {
-        case .roll:
-            sensorValue = axes.roll
-        case .pitch:
-            sensorValue = axes.pitch
-        case .yaw:
-            sensorValue = axes.yaw
+    // New method to map sensor values to physical degrees using only roll values
+    func mapSensorToDegrees(roll: CGFloat, pitch: CGFloat, yaw: CGFloat) -> CGFloat {
+        // If we don't have at least 2 calibration points, return 0
+        guard calibrationMap.count >= 2 else { return 0 }
+        
+        // Sort calibration points by roll value for easier processing
+        let sortedByRoll = calibrationMap.sorted { abs($0.roll - roll) < abs($1.roll - roll) }
+        
+        // Find the two closest points by roll value
+        let closest = sortedByRoll[0]
+        
+        // If we're very close to a calibration point, just use its angle
+        if abs(closest.roll - roll) < 3.0 {
+            return closest.angle
         }
         
-        // Find the two calibration points that the sensor value falls between
-        var closestLower: CalibrationPoint?
-        var closestUpper: CalibrationPoint?
-        var closestPoint: CalibrationPoint?
-        var closestDistance: CGFloat = .greatestFiniteMagnitude
+        // Otherwise, find the second closest for interpolation
+        let secondClosest = sortedByRoll[1]
         
-        for point in calibrationPoints {
-            let pointValue: CGFloat
-            switch primaryRotationAxis {
-            case .roll:
-                pointValue = point.roll
-            case .pitch:
-                pointValue = point.pitch
-            case .yaw:
-                pointValue = point.yaw
-            }
-            
-            let distance = abs(pointValue - sensorValue)
-            if distance < closestDistance {
-                closestDistance = distance
-                closestPoint = point
-            }
-            
-            if pointValue <= sensorValue && (closestLower == nil || pointValue > getAxisValue(closestLower!, axis: primaryRotationAxis)) {
-                closestLower = point
-            }
-            
-            if pointValue >= sensorValue && (closestUpper == nil || pointValue < getAxisValue(closestUpper!, axis: primaryRotationAxis)) {
-                closestUpper = point
-            }
-        }
+        // Calculate weights for interpolation based on roll distances
+        let dist1 = abs(roll - closest.roll)
+        let dist2 = abs(roll - secondClosest.roll)
+        let totalDist = dist1 + dist2
         
-        // If we couldn't find appropriate bounds, use the closest point
-        if closestLower == nil || closestUpper == nil {
-            return closestPoint!.physicalAngle
-        }
+        // Normalize weights
+        let weight1 = 1.0 - (dist1 / totalDist)
+        let weight2 = 1.0 - (dist2 / totalDist)
         
-        // Linear interpolation between the two points
-        let lowerValue = getAxisValue(closestLower!, axis: primaryRotationAxis)
-        let upperValue = getAxisValue(closestUpper!, axis: primaryRotationAxis)
+        // Normalize weights to sum to 1
+        let weightSum = weight1 + weight2
+        let normalizedWeight1 = weight1 / weightSum
+        let normalizedWeight2 = weight2 / weightSum
         
-        // Avoid division by zero
-        if lowerValue == upperValue {
-            return closestLower!.physicalAngle
-        }
+        // Interpolate angle
+        let interpolatedAngle = (closest.angle * normalizedWeight1) + (secondClosest.angle * normalizedWeight2)
         
-        let proportion = (sensorValue - lowerValue) / (upperValue - lowerValue)
-        return closestLower!.physicalAngle + proportion * (closestUpper!.physicalAngle - closestLower!.physicalAngle)
+        return interpolatedAngle
     }
     
-    // Helper method to get the value for a specific axis from a calibration point
-    private func getAxisValue(_ point: CalibrationPoint, axis: RotationAxis) -> CGFloat {
-        switch axis {
-        case .roll:
-            return point.roll
-        case .pitch:
-            return point.pitch
-        case .yaw:
-            return point.yaw
-        }
-    }
-    
-    // Updated rotation method using the new mapping
+    // Updated rotation method using mapping
     func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
-        guard let neutralRoll = self.neutralRoll,
-              let neutralPitch = self.neutralPitch,
-              let neutralYaw = self.neutralYaw else { return }
+        guard let neutralPitch = self.neutralPitch,
+              let neutralYaw = self.neutralYaw,
+              let neutralRoll = self.neutralRoll else { return }
         
         // Format rotation data for display
         let formattedRoll = String(format: "%.2f", axes.roll)
         let formattedPitch = String(format: "%.2f", axes.pitch)
         let formattedYaw = String(format: "%.2f", axes.yaw)
         
-        // Map current sensor values to physical degrees
-        let currentPhysicalAngle = mapSensorToPhysicalAngle(axes: axes)
+        // Map sensor values to physical degrees using roll only
+        let physicalDegrees = mapSensorToDegrees(roll: axes.roll, pitch: axes.pitch, yaw: axes.yaw)
         
-        // Map neutral sensor values to physical degrees
-        let neutralThreeDimension = ThreeDimension(pitch: neutralPitch, roll: neutralRoll, yaw: neutralYaw)
-        let neutralPhysicalAngle = mapSensorToPhysicalAngle(axes: neutralThreeDimension)
+        // Calculate physical rotation by subtracting the neutral position
+        let neutralDegrees = mapSensorToDegrees(roll: neutralRoll, pitch: neutralPitch, yaw: neutralYaw)
+        let rotationValue = physicalDegrees - neutralDegrees
         
-        // Calculate the relative rotation
-        let rotationAngle = currentPhysicalAngle - neutralPhysicalAngle
-        let formattedDelta = String(format: "%.2f", rotationAngle)
+        let formattedDelta = String(format: "%.2f", rotationValue)
+        let formattedMappedAngle = String(format: "%.2f", physicalDegrees)
         
-        // Update rotation information
-        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
+        // Update rotation information with more details
+        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n- Mapped Angle (Roll): \(formattedMappedAngle)°\n\nRotation: \(formattedDelta)°"
         rotationUpdateHandler?(firstRotation, currentRotation)
         
         // Apply normalized rotation
-        let normalizedDelta = normalizeAngle(rotationAngle)
+        let normalizedDelta = normalizeAngle(rotationValue)
         let radians = normalizedDelta * .pi / 180
         
         // Apply rotation transform to the UIImageView directly
@@ -474,5 +454,51 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
             imageView.transform = CGAffineTransform(rotationAngle: radians)
         }
     }
+    
+    // Calibration method for easy adjustment
+    func calibrateWithMeasurement(
+        angle: CGFloat,
+        roll: CGFloat,
+        pitch: CGFloat,
+        yaw: CGFloat
+    ) {
+        // Update or add the calibration point
+        if let index = calibrationMap.firstIndex(where: { $0.angle == angle }) {
+            calibrationMap[index] = (angle: angle, roll: roll, pitch: pitch, yaw: yaw)
+        } else {
+            calibrationMap.append((angle: angle, roll: roll, pitch: pitch, yaw: yaw))
+        }
+        
+        // Sort the calibration map by angle for easier reference
+        calibrationMap.sort { $0.angle < $1.angle }
+        
+        // Save to UserDefaults for persistence
+        let codablePoints = calibrationMap.map { CalibrationPoint(angle: $0.angle, roll: $0.roll, pitch: $0.pitch, yaw: $0.yaw) }
+        if let encodedData = try? JSONEncoder().encode(codablePoints) {
+            UserDefaults.standard.set(encodedData, forKey: "sensor_calibration_map")
+        }
+        
+        // Reset neutral values to force recalibration
+        resetCalibration()
+    }
+    
+    // Convenience method to set the default calibration values
+    func resetCalibrationToDefaults() {
+        calibrationMap = [
+            (angle: 0.0, roll: -137.0, pitch: -18.0, yaw: -165.0),
+            (angle: 45.0, roll: -92.0, pitch: -45.0, yaw: 67.0),
+            (angle: 90.0, roll: -105.0, pitch: 41.0, yaw: -46.0),
+            (angle: 135.0, roll: -90.0, pitch: -17.0, yaw: 48.0),
+            (angle: -45.0, roll: -112.0, pitch: 55.0, yaw: 27.0),
+            (angle: -135.0, roll: -93.0, pitch: 28.0, yaw: 31.0)
+        ]
+        
+        // Save to UserDefaults
+        let codablePoints = calibrationMap.map { CalibrationPoint(angle: $0.angle, roll: $0.roll, pitch: $0.pitch, yaw: $0.yaw) }
+        if let encodedData = try? JSONEncoder().encode(codablePoints) {
+            UserDefaults.standard.set(encodedData, forKey: "sensor_calibration_map")
+        }
+        
+        resetCalibration()
+    }
 }
-
