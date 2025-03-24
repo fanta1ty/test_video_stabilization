@@ -43,14 +43,11 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     
     // Calibration values
     private var calibrationMap: [(angle: CGFloat, roll: CGFloat, pitch: CGFloat, yaw: CGFloat)] = [
-        (angle: 0.0, roll: -137.0, pitch: -18.0, yaw: -165.0),
-        (angle: 45.0, roll: -92.0, pitch: -45.0, yaw: 67.0),
-        (angle: 90.0, roll: -105.0, pitch: 41.0, yaw: -46.0),
-        (angle: 180, roll: -92.0, pitch: 3.0, yaw: -36.0),
-        (angle: 135.0, roll: -90.0, pitch: -17.0, yaw: 48.0),
-        (angle: -45.0, roll: -112.0, pitch: 55.0, yaw: 27.0),
-        (angle: -135.0, roll: -93.0, pitch: 28.0, yaw: 31.0),
-        (angle: -180, roll: -90.0, pitch: 3.0, yaw: -38.0),
+        (angle: 0.0, roll: -145.0, pitch: 15.0, yaw: 169.0),
+        (angle: 90.0, roll: -99.0, pitch: 43.0, yaw: -48.0),
+        (angle: 180, roll: -92.0, pitch: 2.0, yaw: -22.0),
+        (angle: -90.0, roll: -102.0, pitch: -37.0, yaw: -17.0),
+        (angle: -180, roll: -95.0, pitch: 3.0, yaw: -23.0),
     ]
     
     // MARK: - Public Properties
