@@ -465,5 +465,6 @@ class ViewController: UIViewController {
     private func updateRotationLabels(firstRotation: String?, currentRotation: String?) {
         firstRotationLabel.text = firstRotation
         rotationValueLabel.text = "Data Received: \(currentRotation ?? "N/A")"
+        print(currentRotation)
     }
 }

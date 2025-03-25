@@ -45,9 +45,9 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     private var calibrationMap: [(angle: CGFloat, roll: CGFloat, pitch: CGFloat, yaw: CGFloat)] = [
         (angle: 0.0, roll: -145.0, pitch: 15.0, yaw: 169.0),
         (angle: 90.0, roll: -99.0, pitch: 43.0, yaw: -48.0),
-        (angle: 180, roll: -92.0, pitch: 2.0, yaw: -22.0),
+        (angle: 180.0, roll: -92.0, pitch: 2.0, yaw: -22.0),
         (angle: -90.0, roll: -102.0, pitch: -37.0, yaw: -17.0),
-        (angle: -180, roll: -95.0, pitch: 3.0, yaw: -23.0),
+        (angle: -180.0, roll: -95.0, pitch: 3.0, yaw: -23.0)
     ]
     
     // MARK: - Public Properties
@@ -290,21 +290,21 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     }
 
     private func applyRotation(image: UIImage, axes: ThreeDimension) -> UIImage? {
-        guard neutralPitch != nil, neutralYaw != nil else { return nil }
-        let deltaRoll = axes.roll - self.neutralRoll!
-        let deltaYaw = axes.yaw - self.neutralYaw!
-        let deltaPitch = axes.pitch - self.neutralPitch!
+        guard neutralRoll != nil else { return nil }
         
         let formattedRoll = String(format: "%.2f", axes.roll)
         let formattedPitch = String(format: "%.2f", axes.pitch)
         let formattedYaw = String(format: "%.2f", axes.yaw)
-        let formattedDelta = String(format: "%.2f", deltaPitch)
         
-        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedDelta)°"
+        // Get the rotation angle based on both roll and pitch
+        let rotationAngle = getRotationAngleFromSensor(roll: axes.roll, pitch: axes.pitch)
+        
+        let formattedRotation = String(format: "%.2f", rotationAngle)
+        
+        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedRotation)°"
         rotationUpdateHandler?(firstRotation, currentRotation)
         
-        let delta = self.normalizeAngle(deltaPitch)
-        let radians = delta * .pi / 180
+        let radians = rotationAngle * .pi / 180
         
         let originalSize = image.size
         let rotatedSize = CGRect(origin: .zero, size: originalSize)
@@ -330,7 +330,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     }
 
     private func normalizeAngle(_ angle: CGFloat) -> CGFloat {
-        // Normalize angle for smoother rotation
+        // Normalize angle to -180 to 180 range
         var normalized = angle.truncatingRemainder(dividingBy: 360)
         if normalized > 180 {
             normalized -= 360
@@ -338,12 +338,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
             normalized += 360
         }
         
-        // Apply dead zone for small angles to prevent jitter
-        if abs(normalized) < 2.0 {
-            return 0
-        }
-        
-        // Snap to cardinal angles if close
+        // For angles near 0, 90, 180, -90, or -180 (within 5 degrees), snap to those values
         let snapAngles: [CGFloat] = [0, 90, 180, -90, -180]
         for snapAngle in snapAngles {
             if abs(normalized - snapAngle) < 5.0 {
@@ -378,75 +373,68 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         let yaw: CGFloat
     }
     
-    // New method to map sensor values to physical degrees using only roll values
-    func mapSensorToDegrees(roll: CGFloat, pitch: CGFloat, yaw: CGFloat) -> CGFloat {
-        // If we don't have at least 2 calibration points, return 0
-        guard calibrationMap.count >= 2 else { return 0 }
+    // Get rotation angle using both roll and pitch values with tolerance
+    func getRotationAngleFromSensor(roll: CGFloat, pitch: CGFloat) -> CGFloat {
+        // Define tolerance (10 degrees)
+        let rollTolerance: CGFloat = 10.0
         
-        // Sort calibration points by roll value for easier processing
-        let sortedByRoll = calibrationMap.sorted { abs($0.roll - roll) < abs($1.roll - roll) }
+        // Define calibration points with their sensor values and corresponding rotation angles
+        let calibrationPoints: [(roll: CGFloat, pitch: CGFloat, angle: CGFloat)] = [
+            (roll: -145.0, pitch: 15.0, angle: 0.0),     // 0 degrees
+            (roll: -99.0, pitch: 43.0, angle: 90.0),     // 90 degrees
+            (roll: -92.0, pitch: 2.0, angle: 180.0),     // 180 degrees
+            (roll: -102.0, pitch: -37.0, angle: -90.0),  // -90 degrees
+            (roll: -95.0, pitch: 3.0, angle: -180.0)     // -180 degrees
+        ]
         
-        // Find the two closest points by roll value
-        let closest = sortedByRoll[0]
+        // Check if roll is within tolerance of any calibration point
+        var matchingPoints: [(roll: CGFloat, pitch: CGFloat, angle: CGFloat, distance: CGFloat)] = []
         
-        // If we're very close to a calibration point, just use its angle
-        if abs(closest.roll - roll) < 3.0 {
-            return closest.angle
+        for point in calibrationPoints {
+            if abs(roll - point.roll) <= rollTolerance {
+                // Calculate distance to consider both roll and pitch
+                let rollDistance = abs(roll - point.roll)
+                let pitchDistance = abs(pitch - point.pitch)
+                let totalDistance = rollDistance + pitchDistance
+                
+                matchingPoints.append((roll: point.roll,
+                                       pitch: point.pitch,
+                                       angle: point.angle,
+                                       distance: totalDistance))
+            }
         }
         
-        // Otherwise, find the second closest for interpolation
-        let secondClosest = sortedByRoll[1]
+        // If we have matching points, select the one with the smallest total distance
+        if !matchingPoints.isEmpty {
+            matchingPoints.sort { $0.distance < $1.distance }
+            return matchingPoints[0].angle
+        }
         
-        // Calculate weights for interpolation based on roll distances
-        let dist1 = abs(roll - closest.roll)
-        let dist2 = abs(roll - secondClosest.roll)
-        let totalDist = dist1 + dist2
-        
-        // Normalize weights
-        let weight1 = 1.0 - (dist1 / totalDist)
-        let weight2 = 1.0 - (dist2 / totalDist)
-        
-        // Normalize weights to sum to 1
-        let weightSum = weight1 + weight2
-        let normalizedWeight1 = weight1 / weightSum
-        let normalizedWeight2 = weight2 / weightSum
-        
-        // Interpolate angle
-        let interpolatedAngle = (closest.angle * normalizedWeight1) + (secondClosest.angle * normalizedWeight2)
-        
-        return interpolatedAngle
+        // If not within tolerance of any specific point, return 0
+        return 0.0
     }
     
-    // Updated rotation method using mapping
+    // Updated rotation method using both roll and pitch values
     func applyRotationToImageView(_ imageView: UIImageView, axes: ThreeDimension) {
-        guard let neutralPitch = self.neutralPitch,
-              let neutralYaw = self.neutralYaw,
-              let neutralRoll = self.neutralRoll else { return }
-        
         // Format rotation data for display
         let formattedRoll = String(format: "%.2f", axes.roll)
         let formattedPitch = String(format: "%.2f", axes.pitch)
         let formattedYaw = String(format: "%.2f", axes.yaw)
         
-        // Map sensor values to physical degrees using roll only
-        let physicalDegrees = mapSensorToDegrees(roll: axes.roll, pitch: axes.pitch, yaw: axes.yaw)
+        // Get the rotation angle based on both roll and pitch
+        let rotationAngle = getRotationAngleFromSensor(roll: axes.roll, pitch: axes.pitch)
         
-        // Calculate physical rotation by subtracting the neutral position
-        let neutralDegrees = mapSensorToDegrees(roll: neutralRoll, pitch: neutralPitch, yaw: neutralYaw)
-        let rotationValue = physicalDegrees - neutralDegrees
+        // Format for display
+        let formattedRotation = String(format: "%.2f", rotationAngle)
         
-        let formattedDelta = String(format: "%.2f", rotationValue)
-        let formattedMappedAngle = String(format: "%.2f", physicalDegrees)
-        
-        // Update rotation information with more details
-        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n- Mapped Angle (Roll): \(formattedMappedAngle)°\n\nRotation: \(formattedDelta)°"
+        // Update rotation information
+        currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedRotation)°"
         rotationUpdateHandler?(firstRotation, currentRotation)
         
-        // Apply normalized rotation
-        let normalizedDelta = normalizeAngle(rotationValue)
-        let radians = normalizedDelta * .pi / 180
+        // Convert degree to radians for the transform
+        let radians = rotationAngle * .pi / 180
         
-        // Apply rotation transform to the UIImageView directly
+        // Apply rotation transform
         UIView.animate(withDuration: 0.1) {
             imageView.transform = CGAffineTransform(rotationAngle: radians)
         }
@@ -482,12 +470,11 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     // Convenience method to set the default calibration values
     func resetCalibrationToDefaults() {
         calibrationMap = [
-            (angle: 0.0, roll: -137.0, pitch: -18.0, yaw: -165.0),
-            (angle: 45.0, roll: -92.0, pitch: -45.0, yaw: 67.0),
-            (angle: 90.0, roll: -105.0, pitch: 41.0, yaw: -46.0),
-            (angle: 135.0, roll: -90.0, pitch: -17.0, yaw: 48.0),
-            (angle: -45.0, roll: -112.0, pitch: 55.0, yaw: 27.0),
-            (angle: -135.0, roll: -93.0, pitch: 28.0, yaw: 31.0)
+            (angle: 0.0, roll: -145.0, pitch: 15.0, yaw: 169.0),
+            (angle: 90.0, roll: -99.0, pitch: 43.0, yaw: -48.0),
+            (angle: 180.0, roll: -92.0, pitch: 2.0, yaw: -22.0),
+            (angle: -90.0, roll: -102.0, pitch: -37.0, yaw: -17.0),
+            (angle: -180.0, roll: -95.0, pitch: 3.0, yaw: -23.0)
         ]
         
         // Save to UserDefaults
