@@ -384,7 +384,11 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
             (roll: -99.0, pitch: 43.0, angle: 90.0),     // 90 degrees
             (roll: -92.0, pitch: 2.0, angle: 180.0),     // 180 degrees
             (roll: -102.0, pitch: -37.0, angle: -90.0),  // -90 degrees
-            (roll: -95.0, pitch: 3.0, angle: -180.0)     // -180 degrees
+            (roll: -95.0, pitch: 3.0, angle: -180.0),    // -180 degrees
+            (roll: -116.0, pitch: 55.0, angle: 45.0),    // 45 degrees
+            (roll: -97.0, pitch: 30.0, angle: 135.0),    // 135 degrees
+            (roll: -96.0, pitch: -46.0, angle: -45.0),   // -45 degrees
+            (roll: -93.0, pitch: -18.0, angle: -135.0)   // -135 degrees
         ]
         
         // Check if roll is within tolerance of any calibration point
@@ -471,9 +475,13 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     func resetCalibrationToDefaults() {
         calibrationMap = [
             (angle: 0.0, roll: -145.0, pitch: 15.0, yaw: 169.0),
+            (angle: 45.0, roll: -116.0, pitch: 55.0, yaw: -73.0),
             (angle: 90.0, roll: -99.0, pitch: 43.0, yaw: -48.0),
+            (angle: 135.0, roll: -97.0, pitch: 30.0, yaw: -32.0),
             (angle: 180.0, roll: -92.0, pitch: 2.0, yaw: -22.0),
+            (angle: -45.0, roll: -96.0, pitch: -46.0, yaw: -50.0),
             (angle: -90.0, roll: -102.0, pitch: -37.0, yaw: -17.0),
+            (angle: -135.0, roll: -93.0, pitch: -18.0, yaw: -31.0),
             (angle: -180.0, roll: -95.0, pitch: 3.0, yaw: -23.0)
         ]
         
