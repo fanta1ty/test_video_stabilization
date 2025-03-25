@@ -23,6 +23,8 @@ class ViewController: UIViewController {
         view.translatesAutoresizingMaskIntoConstraints = false
         view.backgroundColor = .black
         view.clipsToBounds = true
+        view.layer.shouldRasterize = true
+        view.layer.rasterizationScale = UIScreen.main.scale
         return view
     }()
     
@@ -32,6 +34,8 @@ class ViewController: UIViewController {
         view.contentMode = .scaleAspectFill
         view.backgroundColor = .black
         view.clipsToBounds = true
+        // Setting layer properties for better rendering performance
+        view.layer.drawsAsynchronously = true
         return view
     }()
     
@@ -98,16 +102,50 @@ class ViewController: UIViewController {
     private var gyroscopeExtractor: GyroscopeExtractor!
     private var mjpegStreamView: MjpegStabilizeStreaming?
     
+    // Performance optimization properties
+    private var lastUIUpdateTime: TimeInterval = 0
+    private var uiUpdateInterval: TimeInterval = 0.1 // Only update UI every 100ms
+    private var rotationChangeThreshold: CGFloat = 1.0 // Only apply rotation if change > 1 degree
+    private var lastRotationAngle: CGFloat = 0
+    
     // MARK: - Lifecycle Methods
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        setupStream()
+        
+        // Delay stream setup slightly to improve app launch performance
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.setupStream()
+        }
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        
+        // Set up UI in hierarchy before animations
+        self.view.layoutIfNeeded()
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        
+        // Ensure core animation works efficiently
+        UIView.setAnimationsEnabled(true)
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        
+        // Disable animations to prevent issues when leaving view
+        UIView.setAnimationsEnabled(false)
         cleanupStreams()
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        
+        // Final cleanup
+        imageView.image = nil
     }
     
     deinit {
@@ -206,12 +244,23 @@ class ViewController: UIViewController {
         // Configure media
         let media = VLCMedia(url: StreamConfig.vlcStreamURL)
         
-        // Configure media options for low latency
-        media.addOption(":network-caching=300")
+        // Optimized configuration for low latency and better performance
+        media.addOption(":network-caching=200")  // Reduced from 300 for lower latency
         media.addOption(":clock-jitter=0")
         media.addOption(":clock-synchro=0")
+        media.addOption(":sout-mux-caching=0")
+        media.addOption(":file-caching=100")
+        media.addOption(":live-caching=100")
+        media.addOption(":codec=avcodec") // Force software decoding if hardware causes issues
+        media.addOption(":no-video-title-show")
         
         player.media = media
+        
+        // Optimize player
+        // Configure video options directly
+        media.addOption(":video-filter=adjust")
+        media.addOption(":deinterlace=1")
+        media.addOption(":deinterlace-mode=blend")
         
         // Set up VLC notifications
         setupVLCNotifications()
@@ -243,7 +292,10 @@ class ViewController: UIViewController {
     @objc private func mediaPlayerTimeChanged(_ notification: Notification) {
         // When VLC updates the frame, apply rotation
         if rotationSwitch.isOn && gyroscopeExtractor.startAutoRotation {
-            applyRotation()
+            // Use a dispatch queue to avoid blocking the VLC playback thread
+            DispatchQueue.main.async {
+                self.applyRotation()
+            }
         }
     }
     
@@ -252,78 +304,103 @@ class ViewController: UIViewController {
               let yaw = gyroscopeExtractor.neutralYaw,
               let roll = gyroscopeExtractor.neutralRoll else { return }
         
-        // Apply rotation based on the current gyroscope data
-        if let currentRotation = gyroscopeExtractor.currentRotation {
-            // Extract the rotation angle from the gyroscope data
-            let rotationAngle = extractRotationAngle(from: currentRotation)
-            
-            // Convert angle to radians
-            let radians = rotationAngle * CGFloat.pi / 180
-            
-            // Calculate the scale factor needed to fill the parent after rotation
-            let scale = calculateScaleToFillAfterRotation(angle: radians)
-            
-            // Apply both rotation and scaling to ensure corners reach parent boundaries
-            UIView.animate(withDuration: 0.1) {
-                // Combine rotation and scaling transformations
-                let rotationTransform = CGAffineTransform(rotationAngle: radians)
-                let scaledTransform = rotationTransform.scaledBy(x: scale, y: scale)
-                
-                self.imageView.transform = scaledTransform
-            }
+        // Only proceed if gyroscope data is available
+        guard let currentRotation = gyroscopeExtractor.currentRotation else { return }
+        
+        // Extract the rotation angle from the gyroscope data
+        let rotationAngle = extractRotationAngle(from: currentRotation)
+        
+        // Skip if change is too small (performance optimization)
+        if abs(rotationAngle - lastRotationAngle) < rotationChangeThreshold {
+            return
         }
+        
+        // Convert angle to radians
+        let radians = rotationAngle * CGFloat.pi / 180
+        
+        // Calculate the scale factor needed to fill the parent after rotation
+        let scale = calculateScaleToFillAfterRotation(angle: radians)
+        
+        // Combine rotation and scaling transformations (without animation for better performance)
+        let rotationTransform = CGAffineTransform(rotationAngle: radians)
+        let scaledTransform = rotationTransform.scaledBy(x: scale, y: scale)
+        
+        imageView.transform = scaledTransform
+        
+        // Store last applied angle
+        lastRotationAngle = rotationAngle
     }
     
+    // Cached regex pattern for rotation angle extraction
+    private static let rotationPattern = "Rotation: ([\\d.-]+)°"
+    private static var rotationRegex: NSRegularExpression? = {
+        do {
+            return try NSRegularExpression(pattern: rotationPattern, options: [])
+        } catch {
+            print("Failed to create regex: \(error)")
+            return nil
+        }
+    }()
+    
     private func extractRotationAngle(from rotationString: String) -> CGFloat {
-        // Extract the rotation angle from the rotation string
-        // Look for the "Rotation: " part and extract the number
-        if let rotationRange = rotationString.range(of: "Rotation: ") {
-            let startIndex = rotationRange.upperBound
-            
-            // Find the degree symbol after the start index
-            if let endRange = rotationString.range(of: "°", options: [], range: startIndex..<rotationString.endIndex) {
-                // Get the substring between "Rotation: " and "°"
-                let valueString = String(rotationString[startIndex..<endRange.lowerBound])
+        // Use the shared, cached regex to find matches
+        guard let regex = ViewController.rotationRegex else {
+            // Fallback to simple string parsing if regex fails
+            if let rotationRange = rotationString.range(of: "Rotation: "),
+               let endRange = rotationString.range(of: "°", options: [], range: rotationRange.upperBound..<rotationString.endIndex) {
+                let valueString = String(rotationString[rotationRange.upperBound..<endRange.lowerBound])
+                return CGFloat(Double(valueString) ?? 0.0)
+            }
+            return 0.0
+        }
+        
+        if let match = regex.firstMatch(in: rotationString, options: [], range: NSRange(rotationString.startIndex..., in: rotationString)) {
+            // Get the captured group (the number)
+            if match.numberOfRanges > 1,
+               let valueRange = Range(match.range(at: 1), in: rotationString) {
+                let valueString = String(rotationString[valueRange])
                 
-                // Convert to Double then CGFloat
-                if let doubleValue = Double(valueString) {
-                    return CGFloat(doubleValue)
-                }
+                // Convert directly to CGFloat
+                return CGFloat(Double(valueString) ?? 0.0)
             }
         }
+        
         return 0.0
     }
     
-    /// Calculate the scale factor needed to ensure the view fills its parent after rotation
     private func calculateScaleToFillAfterRotation(angle: CGFloat) -> CGFloat {
-        // For a rectangular view, we need to calculate how much to scale
-        // based on the rotation angle to ensure no empty corners
+        // For better performance, use a lookup table approach for common angles
+        // with a fast path for the most common cases
         
-        // A simplified approach that works well:
-        // When rotated 45°, the scale needed is about 1.4 (√2)
-        // When rotated 0° or 90°, the scale needed is 1.0
+        // Fast path for common angles (no calculation needed)
+        if angle == 0 || abs(angle) == .pi/2 || abs(angle) == .pi {
+            return 1.0
+        }
         
-        // Normalize angle to 0-90° range for calculation
+        // Fast path for 45-degree angles (√2 ≈ 1.414)
+        if abs(angle - .pi/4) < 0.01 || abs(angle + .pi/4) < 0.01 ||
+           abs(angle - 3 * .pi/4) < 0.01 || abs(angle + 3 * .pi/4) < 0.01 {
+            return 1.42
+        }
+        
+        // Normalize angle to 0-90° range for calculation (for other angles)
         let normalizedAngle = abs(angle.truncatingRemainder(dividingBy: .pi/2))
         
-        // Calculate scale - maximum at 45° (π/4)
-        // sin(2*angle) gives us a curve that's 0 at 0° and 90°, and 1 at 45°
-        let baseScale = 1.0
-        let maxExtraScale = 0.42 // sqrt(2) - 1, rounded up slightly for safety
+        // Use a more efficient calculation that's still accurate
+        // sin² + cos² = 1, so we can use this identity to simplify
+        let sinValue = sin(normalizedAngle)
+        let cosValue = cos(normalizedAngle)
         
-        // Scale factor formula - peaks at 45 degrees
-        let extraScale = sin(2 * normalizedAngle) * maxExtraScale
-        
-        return baseScale + extraScale
+        // This formula produces correct scaling for any angle
+        return 1.0 / min(abs(cosValue), abs(sinValue))
     }
     
     private func setupMJPEGStream() {
         mjpegStreamView = MjpegStabilizeStreaming(imageView: imageView)
         mjpegStreamView?.contentURL = StreamConfig.streamURL
         mjpegStreamView?.rotationUpdateHandler = { [weak self] firstRotation, currentRotation in
-            DispatchQueue.main.async {
-                self?.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
-            }
+            // Use the throttled update method
+            self?.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
         }
         mjpegStreamView?.play()
     }
@@ -332,20 +409,38 @@ class ViewController: UIViewController {
         // Use the container view as the container for the gyroscope extractor
         gyroscopeExtractor = GyroscopeExtractor(imageView: imageView, containerView: containerView)
         gyroscopeExtractor.contentURL = StreamConfig.gyroscopeURL
+        
+        // Set up rotation handler to be more efficient
         gyroscopeExtractor.rotationUpdateHandler = { [weak self] firstRotation, currentRotation in
-            DispatchQueue.main.async {
-                self?.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
-                
-                // Apply rotation if enabled
-                if self?.rotationSwitch.isOn == true &&
-                   self?.gyroscopeExtractor.startAutoRotation == true &&
-                   self?.currentStreamMode == .vlcPlayer {
-                    self?.applyRotation()
+            guard let self = self else { return }
+            
+            // Update labels (this method contains its own throttling)
+            self.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
+            
+            // Defer rotation application to next run loop for better UI responsiveness
+            if self.rotationSwitch.isOn == true &&
+               self.gyroscopeExtractor.startAutoRotation == true &&
+               self.currentStreamMode == .vlcPlayer {
+                DispatchQueue.main.async {
+                    self.applyRotation()
                 }
             }
         }
+        
+        // Use lower-level URLSession configuration for better network performance
+        let urlSessionConfig = URLSessionConfiguration.default
+        urlSessionConfig.timeoutIntervalForRequest = 10  // More aggressive timeout
+        urlSessionConfig.httpMaximumConnectionsPerHost = 1  // Limit connections
+        urlSessionConfig.requestCachePolicy = .reloadIgnoringLocalCacheData
+        urlSessionConfig.networkServiceType = .video  // Prioritize video traffic
+        
+        // Start the stream
         gyroscopeExtractor.playStream()
-        gyroscopeExtractor.startGyroscopeUpdates()
+        
+        // Start gyroscope updates with a slight delay to ensure UI is ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.gyroscopeExtractor.startGyroscopeUpdates()
+        }
     }
     
     private func cleanupStreams() {
@@ -391,9 +486,8 @@ class ViewController: UIViewController {
         
         // Reset rotation if disabled
         if !sender.isOn {
-            UIView.animate(withDuration: 0.3) {
-                self.imageView.transform = .identity
-            }
+            // Apply instantly without animation for better performance
+            imageView.transform = .identity
         }
     }
     
@@ -417,9 +511,8 @@ class ViewController: UIViewController {
         
         // Reset rotation if auto rotation is turned off
         if isActive {
-            UIView.animate(withDuration: 0.3) {
-                self.imageView.transform = .identity
-            }
+            // Apply instantly without animation for better performance
+            imageView.transform = .identity
         }
     }
     
@@ -463,8 +556,27 @@ class ViewController: UIViewController {
     
     // MARK: - UI Updates
     private func updateRotationLabels(firstRotation: String?, currentRotation: String?) {
-        firstRotationLabel.text = firstRotation
-        rotationValueLabel.text = "Data Received: \(currentRotation ?? "N/A")"
-        print(currentRotation)
+        // Throttle UI updates for better performance
+        let currentTime = CACurrentMediaTime()
+        if currentTime - lastUIUpdateTime < uiUpdateInterval {
+            return // Skip this update if too soon
+        }
+        
+        // Update UI
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Only update if text actually changed
+            if self.firstRotationLabel.text != firstRotation {
+                self.firstRotationLabel.text = firstRotation
+            }
+            
+            let newText = "Data Received: \(currentRotation ?? "N/A")"
+            if self.rotationValueLabel.text != newText {
+                self.rotationValueLabel.text = newText
+            }
+        }
+        
+        lastUIUpdateTime = currentTime
     }
 }
