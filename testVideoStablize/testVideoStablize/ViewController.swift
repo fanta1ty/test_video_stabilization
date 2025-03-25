@@ -300,15 +300,8 @@ class ViewController: UIViewController {
     }
     
     private func applyRotation() {
-        guard let pitch = gyroscopeExtractor.neutralPitch,
-              let yaw = gyroscopeExtractor.neutralYaw,
-              let roll = gyroscopeExtractor.neutralRoll else { return }
-        
-        // Only proceed if gyroscope data is available
-        guard let currentRotation = gyroscopeExtractor.currentRotation else { return }
-        
-        // Extract the rotation angle from the gyroscope data
-        let rotationAngle = extractRotationAngle(from: currentRotation)
+        // Get the rotation angle directly from the gyroscope extractor
+        let rotationAngle = gyroscopeExtractor.currentRotationAngle
         
         // Skip if change is too small (performance optimization)
         if abs(rotationAngle - lastRotationAngle) < rotationChangeThreshold {
@@ -331,68 +324,43 @@ class ViewController: UIViewController {
         lastRotationAngle = rotationAngle
     }
     
-    // Cached regex pattern for rotation angle extraction
-    private static let rotationPattern = "Rotation: ([\\d.-]+)°"
-    private static var rotationRegex: NSRegularExpression? = {
-        do {
-            return try NSRegularExpression(pattern: rotationPattern, options: [])
-        } catch {
-            print("Failed to create regex: \(error)")
-            return nil
-        }
-    }()
-    
-    private func extractRotationAngle(from rotationString: String) -> CGFloat {
-        // Use the shared, cached regex to find matches
-        guard let regex = ViewController.rotationRegex else {
-            // Fallback to simple string parsing if regex fails
-            if let rotationRange = rotationString.range(of: "Rotation: "),
-               let endRange = rotationString.range(of: "°", options: [], range: rotationRange.upperBound..<rotationString.endIndex) {
-                let valueString = String(rotationString[rotationRange.upperBound..<endRange.lowerBound])
-                return CGFloat(Double(valueString) ?? 0.0)
-            }
-            return 0.0
-        }
-        
-        if let match = regex.firstMatch(in: rotationString, options: [], range: NSRange(rotationString.startIndex..., in: rotationString)) {
-            // Get the captured group (the number)
-            if match.numberOfRanges > 1,
-               let valueRange = Range(match.range(at: 1), in: rotationString) {
-                let valueString = String(rotationString[valueRange])
-                
-                // Convert directly to CGFloat
-                return CGFloat(Double(valueString) ?? 0.0)
-            }
-        }
-        
-        return 0.0
-    }
+    // This code is no longer needed since we get the angle directly from GyroscopeExtractor
     
     private func calculateScaleToFillAfterRotation(angle: CGFloat) -> CGFloat {
         // For better performance, use a lookup table approach for common angles
         // with a fast path for the most common cases
         
-        // Fast path for common angles (no calculation needed)
-        if angle == 0 || abs(angle) == .pi/2 || abs(angle) == .pi {
+        // If no rotation, no scaling needed
+        if angle == 0 || abs(angle - .pi) < 0.01 || abs(angle + .pi) < 0.01 {
             return 1.0
         }
         
-        // Fast path for 45-degree angles (√2 ≈ 1.414)
-        if abs(angle - .pi/4) < 0.01 || abs(angle + .pi/4) < 0.01 ||
-           abs(angle - 3 * .pi/4) < 0.01 || abs(angle + 3 * .pi/4) < 0.01 {
-            return 1.42
+        // For 90-degree rotations (including 270/-90), maintain the aspect ratio without scaling
+        if abs(abs(angle) - .pi/2) < 0.01 || abs(abs(angle) - 3 * .pi/2) < 0.01 {
+            // Calculate container vs content aspect ratio
+            let containerAspect = containerView.bounds.width / containerView.bounds.height
+            let contentAspect = imageView.bounds.height / imageView.bounds.width // Swapped because rotated 90°
+            
+            // Scale to fill the width or height depending on aspect ratios
+            return max(1.0, containerAspect / contentAspect)
         }
         
-        // Normalize angle to 0-90° range for calculation (for other angles)
+        // Normalize angle to 0-90° range for calculation
         let normalizedAngle = abs(angle.truncatingRemainder(dividingBy: .pi/2))
         
-        // Use a more efficient calculation that's still accurate
-        // sin² + cos² = 1, so we can use this identity to simplify
+        // Calculate diagonal ratio for proper scaling during rotation
+        // When rotating, we need to scale to the diagonal to ensure content fills the view
+        // This formula expands the content to fill corners during rotation
+        let aspectRatio = containerView.bounds.width / containerView.bounds.height
         let sinValue = sin(normalizedAngle)
         let cosValue = cos(normalizedAngle)
         
-        // This formula produces correct scaling for any angle
-        return 1.0 / min(abs(cosValue), abs(sinValue))
+        // This formula ensures the content always fills the container during rotation
+        let widthScale = abs(cosValue) + abs(sinValue * aspectRatio)
+        let heightScale = abs(sinValue) + abs(cosValue / aspectRatio)
+        
+        // Return the scale that ensures content fills both dimensions
+        return max(widthScale, heightScale)
     }
     
     private func setupMJPEGStream() {
@@ -410,11 +378,11 @@ class ViewController: UIViewController {
         gyroscopeExtractor = GyroscopeExtractor(imageView: imageView, containerView: containerView)
         gyroscopeExtractor.contentURL = StreamConfig.gyroscopeURL
         
-        // Set up rotation handler to be more efficient
-        gyroscopeExtractor.rotationUpdateHandler = { [weak self] firstRotation, currentRotation in
+        // Set up rotation handler with the updated signature including rotationAngle
+        gyroscopeExtractor.rotationUpdateHandler = { [weak self] firstRotation, currentRotation, rotationAngle in
             guard let self = self else { return }
             
-            // Update labels (this method contains its own throttling)
+            // Update labels with the new information
             self.updateRotationLabels(firstRotation: firstRotation, currentRotation: currentRotation)
             
             // Defer rotation application to next run loop for better UI responsiveness
@@ -572,6 +540,7 @@ class ViewController: UIViewController {
             }
             
             let newText = "Data Received: \(currentRotation ?? "N/A")"
+            print(newText)
             if self.rotationValueLabel.text != newText {
                 self.rotationValueLabel.text = newText
             }
@@ -580,3 +549,4 @@ class ViewController: UIViewController {
         lastUIUpdateTime = currentTime
     }
 }
+

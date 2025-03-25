@@ -32,6 +32,8 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     var neutralYaw: CGFloat?
     var firstRotation: String?
     var currentRotation: String?
+    // Add current rotation angle property
+    private(set) var currentRotationAngle: CGFloat = 0.0
     private var isProcessingFrames = false
     
     private let imageStabilizer = ImageStabilizer()
@@ -52,7 +54,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
     
     // MARK: - Public Properties
     open var authenticationHandler: ((URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?))?
-    open var rotationUpdateHandler: ((_ firstRotation: String?, _ currentRotation: String?) -> Void)?
+    open var rotationUpdateHandler: ((_ firstRotation: String?, _ currentRotation: String?, _ rotationAngle: CGFloat) -> Void)?
     open var didStartLoading: (() -> Void)?
     open var didFinishLoading: (() -> Void)?
     open var onError: ((Error?) -> Void)?
@@ -124,6 +126,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         neutralPitch = nil
         neutralYaw = nil
         firstRotation = nil
+        currentRotationAngle = 0.0
         
         // Reset rotation on the image view
         DispatchQueue.main.async { [weak self] in
@@ -302,7 +305,7 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         let formattedRotation = String(format: "%.2f", rotationAngle)
         
         currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedRotation)°"
-        rotationUpdateHandler?(firstRotation, currentRotation)
+        rotationUpdateHandler?(firstRotation, currentRotation, rotationAngle)
         
         let radians = rotationAngle * .pi / 180
         
@@ -428,20 +431,66 @@ class GyroscopeExtractor: NSObject, URLSessionDataDelegate {
         // Get the rotation angle based on both roll and pitch
         let rotationAngle = getRotationAngleFromSensor(roll: axes.roll, pitch: axes.pitch)
         
+        // Update the current rotation angle property
+        self.currentRotationAngle = rotationAngle
+        
         // Format for display
         let formattedRotation = String(format: "%.2f", rotationAngle)
         
         // Update rotation information
         currentRotation = "\n- Roll: \(formattedRoll)°\n- Pitch: \(formattedPitch)°\n- Yaw: \(formattedYaw)°\n\nRotation: \(formattedRotation)°"
-        rotationUpdateHandler?(firstRotation, currentRotation)
+        rotationUpdateHandler?(firstRotation, currentRotation, rotationAngle)
         
         // Convert degree to radians for the transform
         let radians = rotationAngle * .pi / 180
         
-        // Apply rotation transform
-        UIView.animate(withDuration: 0.1) {
-            imageView.transform = CGAffineTransform(rotationAngle: radians)
+        // Calculate scale to fill when rotated
+        let scale = calculateScaleToFillAfterRotation(angle: radians)
+        
+        // Apply rotation and scale transform
+        UIView.animate(withDuration: 0.3) {
+            let rotationTransform = CGAffineTransform(rotationAngle: radians)
+            let scaledTransform = rotationTransform.scaledBy(x: scale, y: scale)
+            imageView.transform = scaledTransform
         }
+    }
+    
+    // Calculate the scale needed to fill the view after rotation
+    private func calculateScaleToFillAfterRotation(angle: CGFloat) -> CGFloat {
+        // For better performance, use a lookup table approach for common angles
+        // with a fast path for the most common cases
+        
+        // If no rotation, no scaling needed
+        if angle == 0 || abs(angle - .pi) < 0.01 || abs(angle + .pi) < 0.01 {
+            return 1.0
+        }
+        
+        // For 90-degree rotations (including 270/-90), maintain the aspect ratio without scaling
+        if abs(abs(angle) - .pi/2) < 0.01 || abs(abs(angle) - 3 * .pi/2) < 0.01 {
+            // Calculate container vs content aspect ratio
+            let containerAspect = containerView.bounds.width / containerView.bounds.height
+            let contentAspect = imageView.bounds.height / imageView.bounds.width // Swapped because rotated 90°
+            
+            // Scale to fill the width or height depending on aspect ratios
+            return max(1.0, containerAspect / contentAspect)
+        }
+        
+        // Normalize angle to 0-90° range for calculation
+        let normalizedAngle = abs(angle.truncatingRemainder(dividingBy: .pi/2))
+        
+        // Calculate diagonal ratio for proper scaling during rotation
+        // When rotating, we need to scale to the diagonal to ensure content fills the view
+        // This formula expands the content to fill corners during rotation
+        let aspectRatio = containerView.bounds.width / containerView.bounds.height
+        let sinValue = sin(normalizedAngle)
+        let cosValue = cos(normalizedAngle)
+        
+        // This formula ensures the content always fills the container during rotation
+        let widthScale = abs(cosValue) + abs(sinValue * aspectRatio)
+        let heightScale = abs(sinValue) + abs(cosValue / aspectRatio)
+        
+        // Return the scale that ensures content fills both dimensions
+        return max(widthScale, heightScale)
     }
     
     // Calibration method for easy adjustment
